@@ -6,6 +6,7 @@ with embedded coefficients, so the app runs the identical math:
 same features, order, units, missing-value rules. Any retrain that changes
 weights must re-run this script (CI: diff check recommended).
 """
+
 import json
 import os
 
@@ -39,7 +40,7 @@ export const ML_LOGREG_INTERCEPT = %(icept)s;
 export const ML_VALIDATION = %(val)s;
 
 /** Feature vector MUST match training order. Null = incomplete history. */
-export function buildMlFeatures(pastHourly: (number | null)[], hourUtc: number): number[] | null {
+export function buildMlFeatures(pastHourly: (number | null)[], hourLocal: number): number[] | null {
   // pastHourly[i] = precipitation i hours ago (i=1 is last hour).
   const need = [1, 2, 3, 6, 12, 24];
   for (const l of need) {
@@ -53,7 +54,7 @@ export function buildMlFeatures(pastHourly: (number | null)[], hourUtc: number):
     if (v == null) gaps24++;
     else sum24 += v;
   }
-  const hod = ((hourUtc %% 24) / 24) * 2 * Math.PI;
+  const hod = ((hourLocal %% 24) / 24) * 2 * Math.PI;
   return [...lags, sum24, gaps24, Math.sin(hod), Math.cos(hod)];
 }
 
@@ -65,16 +66,31 @@ export function mlHeavyProbability(features: number[]): number {
 }
 """
     with open(OUTP, "w", encoding="utf-8") as f:
-        f.write(ts % {
-            "ver": m["version"], "heavy": m["heavy_mm"], "n": logreg_test["n"],
-            "events": logreg_test["events_true"], "prauc": logreg_test["PR_AUC"],
-            "prec": logreg_test["precision"], "rec": logreg_test["recall"],
-            "far": logreg_test["false_alarm_rate"], "brier": logreg_test["brier"],
-            "feats": json.dumps(m["features"]),
-            "coef": json.dumps(m["logreg"]["coef"]), "icept": m["logreg"]["intercept"],
-            "val": json.dumps({"pr_auc": logreg_test["PR_AUC"], "far": logreg_test["false_alarm_rate"],
-                               "events": logreg_test["events_true"], "n": logreg_test["n"]}),
-        })
+        f.write(
+            ts
+            % {
+                "ver": m["version"],
+                "heavy": m["heavy_mm"],
+                "n": logreg_test["n"],
+                "events": logreg_test["events_true"],
+                "prauc": logreg_test["PR_AUC"],
+                "prec": logreg_test["precision"],
+                "rec": logreg_test["recall"],
+                "far": logreg_test["false_alarm_rate"],
+                "brier": logreg_test["brier"],
+                "feats": json.dumps(m["features"]),
+                "coef": json.dumps(m["logreg"]["coef"]),
+                "icept": m["logreg"]["intercept"],
+                "val": json.dumps(
+                    {
+                        "pr_auc": logreg_test["PR_AUC"],
+                        "far": logreg_test["false_alarm_rate"],
+                        "events": logreg_test["events_true"],
+                        "n": logreg_test["n"],
+                    }
+                ),
+            }
+        )
     print("wrote", OUTP)
 
 

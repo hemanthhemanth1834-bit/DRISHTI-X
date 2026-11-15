@@ -66,7 +66,7 @@ Data age shown per panel.
   not a probability. `UNKNOWN` is returned when no factors are available.
 - Radar readiness comes from the newest actual frame; system status is derived
   from live source health. Provider fetches have timeouts and one safe retry.
-- Regression suite: `npm run test:unit` (45 tests), including Unix-independent
+- Regression suite: `npm run test:unit` (52 tests), including Unix-independent
   engine coverage, null handling, amount→rate conversion, and radar health.
 
 ## AI engine

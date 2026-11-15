@@ -5,7 +5,9 @@ import { qualityReport } from "@/lib/quality";
 import { fetchRivers } from "@/lib/rivers";
 import { buildMlFeatures, mlHeavyProbability, ML_VERSION, ML_HEAVY_MM, ML_VALIDATION } from "@/lib/ml";
 import { amountToRate } from "@/lib/normalize";
+import { sumWindow } from "@/lib/accum";
 import { radarHealth } from "@/lib/radar";
+import { istHourFromUnix } from "@/lib/time";
 import { sampleTerrain } from "./terrain";
 
 export const revalidate = 600;
@@ -13,36 +15,6 @@ export const dynamic = "force-dynamic";
 // Bounded provider fan-out: weather retry (≤14s) + terrain (≤12s) run in
 // parallel, but this leaves headroom for slow upstreams on serverless.
 export const maxDuration = 30;
-
-interface WindowSum {
-  value: number | null;
-  missing: number;
-  expected: number;
-  coverage01: number;
-}
-
-/**
- * Sum an exact window. If any expected hour is missing (provider gap or past
- * the grid edge), the total is null rather than a partial sum presented as a
- * complete accumulation. Coverage is returned so the UI can disclose it.
- */
-function sumWindow(arr: (number | null)[], nowIdx: number, hours: number, past = false): WindowSum {
-  const start = past ? nowIdx - hours : nowIdx;
-  const end = past ? nowIdx : nowIdx + hours;
-  let sum = 0;
-  let missing = 0;
-  for (let i = start; i < end; i++) {
-    const v = i >= 0 && i < arr.length ? arr[i] : null;
-    if (typeof v === "number" && Number.isFinite(v)) sum += v;
-    else missing++;
-  }
-  return {
-    value: missing === 0 ? Math.round(sum * 10) / 10 : null,
-    missing,
-    expected: hours,
-    coverage01: Math.round(((hours - missing) / hours) * 100) / 100,
-  };
-}
 
 /**
  * Common-window alignment by Unix second: identical real instants for every
@@ -214,7 +186,10 @@ export async function GET(req: Request) {
     // over live past-24h history. Display-only; NEVER feeds the warning score.
     const pastHourly: (number | null)[] = [];
     for (let l = 1; l <= 24; l++) pastHourly[l] = nowIdx - l >= 0 ? P[nowIdx - l] : null;
-    const mlFeat = buildMlFeatures(pastHourly, new Date(fetchedAt).getUTCHours());
+    const mlFeat = buildMlFeatures(
+      pastHourly,
+      istHourFromUnix(c.timeUnix ?? Math.floor(new Date(fetchedAt).getTime() / 1000))
+    );
     const ml =
       mlFeat == null
         ? { p: null, complete: false, model: `logreg_bal ${ML_VERSION}`, target: `P(precip t+6h >= ${ML_HEAVY_MM}mm)`, validation: ML_VALIDATION, note: "Insufficient history for ML features." }
@@ -245,7 +220,8 @@ export async function GET(req: Request) {
       provenance: {
         weather: {
           source: "Open-Meteo forecast API (free, no key)",
-          time: c.timeUnix == null ? c.time : new Date(c.timeUnix * 1000).toISOString(),
+          time: c.timeUnix == null ? null : new Date(c.timeUnix * 1000).toISOString(),
+          timeLocal: c.time,
           timeUnix: c.timeUnix,
           status: "LIVE" as const,
           note: "Model-derived current conditions — not a ground observation.",
@@ -257,7 +233,8 @@ export async function GET(req: Request) {
         radar: { status: radar.status, latestAgeMin: radar.latestAgeMin },
       },
       current: {
-        time: c.timeUnix == null ? c.time : new Date(c.timeUnix * 1000).toISOString(),
+        time: c.timeUnix == null ? null : new Date(c.timeUnix * 1000).toISOString(),
+        timeLocal: c.time,
         timeUnix: c.timeUnix,
         temperature: c.temperature_2m,
         humidity: c.relative_humidity_2m,
@@ -331,8 +308,9 @@ export async function GET(req: Request) {
       },
     });
   } catch (e) {
+    console.error("analysis upstream failure", e);
     return NextResponse.json(
-      { status: "OFFLINE", label, lat, lon, fetchedAt, error: `weather upstream failure: ${String(e)}` },
+      { status: "OFFLINE", label, lat, lon, fetchedAt, error: "weather upstream failure" },
       { status: 502 }
     );
   }

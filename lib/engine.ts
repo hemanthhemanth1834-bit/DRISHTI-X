@@ -248,8 +248,8 @@ export function computeRisk(inp: EngineInput): EngineOutput {
       isEstimate: true,
       terrainNote:
         inp.elevationM == null
-          ? "Elevation unavailable — terrain factor excluded and weight redistributed. No DEM/slope/drainage inputs connected (see terrain interface)."
-          : `Point elevation ${Math.round(inp.elevationM)} m (Open-Meteo). No DEM/slope/drainage inputs connected (see terrain interface).`,
+          ? "Elevation unavailable — terrain factor excluded and weight redistributed. Point DEM context is not used for depth; no slope/flow/drainage model is connected."
+          : `Point elevation ${Math.round(inp.elevationM)} m (Open-Meteo). Point DEM context only; no slope/flow/drainage model is connected, so no flood depth or extent is computed.`,
       factors: [
         { name: "Forecast accumulation (24h)", value: iAvail.a24 ? `${(inp.accum24 as number).toFixed(1)} mm` : "unavailable (weight redistributed)" },
         { name: "Antecedent rainfall (past 24h)", value: iAvail.antecedent ? `${(inp.antecedent24 as number).toFixed(1)} mm` : "unavailable (weight redistributed)" },

@@ -16,7 +16,7 @@ export const ML_LOGREG_INTERCEPT = -0.829977147922136;
 export const ML_VALIDATION = {"pr_auc": 0.0437, "far": 0.2957, "events": 5, "n": 404};
 
 /** Feature vector MUST match training order. Null = incomplete history. */
-export function buildMlFeatures(pastHourly: (number | null)[], hourUtc: number): number[] | null {
+export function buildMlFeatures(pastHourly: (number | null)[], hourLocal: number): number[] | null {
   // pastHourly[i] = precipitation i hours ago (i=1 is last hour).
   const need = [1, 2, 3, 6, 12, 24];
   for (const l of need) {
@@ -30,7 +30,7 @@ export function buildMlFeatures(pastHourly: (number | null)[], hourUtc: number):
     if (v == null) gaps24++;
     else sum24 += v;
   }
-  const hod = ((hourUtc % 24) / 24) * 2 * Math.PI;
+  const hod = ((hourLocal % 24) / 24) * 2 * Math.PI;
   return [...lags, sum24, gaps24, Math.sin(hod), Math.cos(hod)];
 }
 

@@ -34,10 +34,14 @@ export default function RainChart({ hourly, gaps, onRefresh }: { hourly?: { time
       };
     });
   }, [hourly]);
-  const total = useMemo(
-    () => Math.round(rows.slice(0, win).reduce((s, r) => s + (r.v ?? 0), 0) * 10) / 10,
-    [rows, win]
-  );
+  const total = useMemo(() => {
+    const windowRows = rows.slice(0, win);
+    const missing = windowRows.filter((r) => r.v == null).length;
+    return {
+      value: missing === 0 ? Math.round(windowRows.reduce((s, r) => s + (r.v as number), 0) * 10) / 10 : null,
+      missing,
+    };
+  }, [rows, win]);
   const shown = useMemo(() => rows.slice(0, Math.max(win, 12)), [rows, win]);
   const peakIdx = useMemo(() => {
     let bi = 0;
@@ -67,10 +71,12 @@ export default function RainChart({ hourly, gaps, onRefresh }: { hourly?: { time
       <div className="chartHead">
         <div>
           <div className="metricLabel">Forecast rainfall — next {win}h · calculated from Open-Meteo hourly data</div>
-          <div className="bigNum">{total.toFixed(1)} <span>mm</span></div>
-          {gaps != null && gaps > 0 && (
-            <div className="prov">{gaps} provider-gap hour{gaps === 1 ? "" : "s"} in window — shown as breaks, excluded from total.</div>
-          )}
+          <div className="bigNum">{total.value == null ? "—" : total.value.toFixed(1)} <span>mm</span></div>
+          {total.missing > 0 ? (
+            <div className="prov">{total.missing} provider-gap hour{total.missing === 1 ? "" : "s"} in this window — total withheld; the chart shows the breaks.</div>
+          ) : gaps != null && gaps > 0 ? (
+            <div className="prov">{gaps} provider-gap hour{gaps === 1 ? "" : "s"} elsewhere in the series — shown as breaks.</div>
+          ) : null}
         </div>
         <div className="tabs" role="group" aria-label="Accumulation window">
           {WINDOWS.map((w) => (

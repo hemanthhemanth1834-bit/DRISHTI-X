@@ -12,12 +12,12 @@ export interface AnalysisPayload {
   lat: number;
   lon: number;
   fetchedAt: string;
-  provenance?: { weather: { source: string; time: string; status: SourceStatus }; elevation: { valueM: number | null; status: SourceStatus }; modelsLive: number };
+  provenance?: { weather: { source: string; time: string | null; timeLocal?: string; status: SourceStatus }; elevation: { valueM: number | null; status: SourceStatus }; modelsLive: number };
   current?: {
-    time: string; timeUnix: number | null; temperature: number; humidity: number;
+    time: string | null; timeLocal?: string; timeUnix: number | null; temperature: number; humidity: number;
     precipitationMM15: number | null; precipitationRateMMH: number | null;
     /** @deprecated legacy raw 15-minute amount; use precipitationRateMMH. */
-    precipitation: number;
+    precipitation: number | null;
     pressure: number; windSpeed: number; windDir: number; cloudCover: number; soilMoisture: number | null;
   };
   hourly?: { time: string[]; timeUnix?: number[]; precipitation: (number | null)[]; probability: (number | null)[] };

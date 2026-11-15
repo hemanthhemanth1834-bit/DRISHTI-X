@@ -51,7 +51,7 @@ describe("computeRisk bands + renormalization", () => {
   it("inundation is always a labelled estimate", () => {
     const r = computeRisk(base);
     assert.equal(r.inundation.isEstimate, true);
-    assert.match(r.inundation.terrainNote, /DEM\/slope/);
+    assert.match(r.inundation.terrainNote, /slope\/flow\/drainage/);
   });
   it("missing accumulation windows renormalize and disclose coverage", () => {
     const r = computeRisk({ ...base, accum6: null, accum24: null, nwpMean24: null, agreement01: null });

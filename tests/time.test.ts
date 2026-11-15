@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { toUnixSeconds } from "../lib/time";
+import { istHourFromUnix, toUnixSeconds } from "../lib/time";
 
 describe("toUnixSeconds converts provider-local wall time to a real instant", () => {
   it("IST 21:45 (+19800s) is 16:15 UTC", () => {
@@ -28,5 +28,17 @@ describe("toUnixSeconds converts provider-local wall time to a real instant", ()
   it("invalid input -> null, never a fabricated epoch", () => {
     assert.equal(toUnixSeconds("", 19800), null);
     assert.equal(toUnixSeconds("not-a-date", 19800), null);
+  });
+});
+
+describe("istHourFromUnix matches the IST hour used by ML training", () => {
+  it("UTC 16:15 is IST 21:45 -> hour 21", () => {
+    assert.equal(istHourFromUnix(Date.UTC(2026, 10, 15, 16, 15) / 1000), 21);
+  });
+  it("UTC 18:30 is IST 00:00 -> hour 0", () => {
+    assert.equal(istHourFromUnix(Date.UTC(2026, 10, 15, 18, 30) / 1000), 0);
+  });
+  it("UTC 00:00 is IST 05:30 -> hour 5", () => {
+    assert.equal(istHourFromUnix(Date.UTC(2026, 10, 15, 0, 0) / 1000), 5);
   });
 });

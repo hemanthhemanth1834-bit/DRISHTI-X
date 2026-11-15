@@ -13,3 +13,14 @@ export function toUnixSeconds(localIso: string, utcOffsetSeconds: number): numbe
   const ms = Date.parse(`${trimmed.slice(0, 19)}Z`);
   return Number.isFinite(ms) ? Math.round(ms / 1000 - utcOffsetSeconds) : null;
 }
+
+/**
+ * Local hour-of-day in India (UTC+05:30, no DST) from a real Unix instant.
+ * Training used IST hour-of-day; using UTC here would shift the ML feature by
+ * 5.5 hours. Kept as an explicit fixed offset because the application scope is
+ * India and IST has no daylight-saving transitions.
+ */
+export function istHourFromUnix(unixSeconds: number): number {
+  const IST_OFFSET_SEC = 19800;
+  return Math.floor((((unixSeconds + IST_OFFSET_SEC) % 86400) + 86400) % 86400 / 3600);
+}

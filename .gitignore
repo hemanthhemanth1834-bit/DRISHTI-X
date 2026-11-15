@@ -8,6 +8,9 @@ node_modules/
 out/
 build/
 
+# vercel
+.vercel/
+
 # production logs
 logs/
 *.log
@@ -35,3 +38,6 @@ test-results/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+.vercel
+.env*

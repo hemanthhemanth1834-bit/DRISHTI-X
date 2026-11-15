@@ -1,4 +1,6 @@
-# DRISHTI-X — SIH PS 26071
+# DRISHTI-X – SIH PS 26071
+
+> **Live demo:** https://drishti-x-eight.vercel.app
 
 ## Project purpose
 

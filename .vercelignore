@@ -1,0 +1,9 @@
+.next
+node_modules
+.git
+start.log
+deploy.log
+.unit-tmp
+coverage
+playwright-report
+test-results

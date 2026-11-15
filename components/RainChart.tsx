@@ -1,6 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
 import { Area, Bar, CartesianGrid, Cell, ComposedChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { IST } from "@/lib/format";
 
 const WINDOWS = [1, 3, 6, 12, 24, 48] as const;
 
@@ -27,7 +28,7 @@ export default function RainChart({ hourly, gaps, onRefresh }: { hourly?: { time
     return hourly.time.map((t, i) => {
       const v = hourly.precipitation[i];
       return {
-        t: new Date(t).toLocaleTimeString("en-IN", { hour: "2-digit", day: "2-digit", month: "short" }),
+        t: new Date(t).toLocaleTimeString("en-IN", { hour: "2-digit", day: "2-digit", month: "short", timeZone: IST }),
         // Null = provider gap: rendered as a visible break, never zero-filled.
         v: typeof v === "number" && Number.isFinite(v) ? Math.round(v * 10) / 10 : null,
       };

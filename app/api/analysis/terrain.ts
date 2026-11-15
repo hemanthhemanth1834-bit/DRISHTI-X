@@ -78,14 +78,18 @@ export async function sampleTerrain(lat: number, lon: number): Promise<TerrainSt
         urls.push(`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${cx + dx}/${cy + dy}.png`);
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), 12000);
-    const bufs = await Promise.all(
-      urls.map(async (u) => {
-        const r = await fetch(u, { headers: { "User-Agent": "DRISHTI-X-PS26071 terrain" }, signal: ctl.signal, next: { revalidate: 604800 } });
-        if (!r.ok) throw new Error(`terrain ${r.status}`);
-        return Buffer.from(await r.arrayBuffer());
-      })
-    );
-    clearTimeout(t);
+    let bufs: Buffer[];
+    try {
+      bufs = await Promise.all(
+        urls.map(async (u) => {
+          const r = await fetch(u, { headers: { "User-Agent": "DRISHTI-X-PS26071 terrain" }, signal: ctl.signal, next: { revalidate: 604800 } });
+          if (!r.ok) throw new Error(`terrain ${r.status}`);
+          return Buffer.from(await r.arrayBuffer());
+        })
+      );
+    } finally {
+      clearTimeout(t);
+    }
     const vals = bufs.flatMap((b) => {
       try {
         return decodeElev(b);

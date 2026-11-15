@@ -19,7 +19,7 @@ export default function WarningCard({
   validUntil,
 }: {
   label: string;
-  accum?: { h6: number };
+  accum?: { h1: number | null; h3: number | null; h6: number | null; h12: number | null; h24: number | null; h48: number | null };
   risk?: EngineOutput;
   live: boolean;
   validUntil?: string;
@@ -42,11 +42,12 @@ export default function WarningCard({
       </h3>
       <dl className="warnGrid">
         <div><dt>Location</dt><dd>{label}</dd></div>
-        <div><dt>Expected rainfall</dt><dd>{(accum?.h6 ?? 0).toFixed(1)} mm / 6h</dd></div>
-        <div><dt>Inundation probability</dt><dd>{Math.round(risk.inundation.prob01 * 100)}% ({risk.inundation.class})</dd></div>
+        <div><dt>Expected rainfall</dt><dd>{accum?.h6 == null ? "— (incomplete 6h window)" : `${accum.h6.toFixed(1)} mm / 6h`}</dd></div>
+        <div><dt>Inundation risk index</dt><dd>{risk.inundation.riskIndex} / 100 ({risk.inundation.class})</dd></div>
         <div><dt>Risk score</dt><dd>{risk.score} / 100</dd></div>
       </dl>
       <div className="progress"><span style={{ width: `${risk.score}%`, background: color }} /></div>
+      <p className="prov">Input coverage {Math.round(risk.coverage01 * 100)}% · inundation factor coverage {Math.round(risk.inundation.coverage01 * 100)}%. Uncalibrated index, not a probability.</p>
       <p className="prov">Why: {risk.drivers.join(" · ")}</p>
       <p className="prov">Bands: {BANDS.map((b) => `${b.level} ≥${b.from}`).join(" · ")} ({WARNING_SYSTEM})</p>
       {validUntil && <p className="prov">Valid until {fmtIST(validUntil)} · superseded by the next analysis refresh.</p>}

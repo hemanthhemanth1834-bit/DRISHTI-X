@@ -35,7 +35,7 @@ export default function BottomMetrics({
       <div className="bCol">
         <span className="metricLabel">Active data sources</span>
         <b>{healthLive}/{healthTotal} live or recent</b>
-        <span className="prov">NWP {analysis?.provenance?.modelsLive ?? 0}/4 · agreement {Math.round((analysis?.agreement01 ?? 0) * 100)}%</span>
+        <span className="prov">NWP {analysis?.provenance?.modelsLive ?? 0}/4 · agreement {analysis?.agreement01 == null ? "—" : `${Math.round(analysis.agreement01 * 100)}%`}</span>
       </div>
       <div className="bCol">
         <span className="metricLabel">Active weather systems</span>

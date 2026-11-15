@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { toFiniteNumber, formatPrecip, barWidth, normalizeNwpModel } from "../lib/normalize";
+import { toFiniteNumber, formatPrecip, barWidth, normalizeNwpModel, amountToRate } from "../lib/normalize";
 
 describe("toFiniteNumber", () => {
   it("passes finite numbers", () => assert.equal(toFiniteNumber(2.5), 2.5));
@@ -25,6 +25,17 @@ describe("barWidth never NaN", () => {
       assert.ok(Number.isFinite(w) && w >= 0 && w <= 100);
     }
   });
+});
+
+describe("amountToRate converts an amount over its interval, not per hour", () => {
+  it("15-min amount 0.25 mm -> 1.0 mm/h", () => assert.equal(amountToRate(0.25), 1));
+  it("zero stays zero", () => assert.equal(amountToRate(0), 0));
+  it("missing/negative -> null, never zero", () => {
+    assert.equal(amountToRate(null), null);
+    assert.equal(amountToRate(undefined), null);
+    assert.equal(amountToRate(-0.1), null);
+  });
+  it("60-min interval is unchanged", () => assert.equal(amountToRate(2.5, 60), 2.5));
 });
 
 describe("normalizeNwpModel", () => {

@@ -5,7 +5,7 @@
 ## Project purpose
 
 AI/ML-based integrated heavy-rainfall early-warning and inundation-prediction
-command center using satellite, radar, observational weather and NWP model data.
+command center using satellite, radar, model-derived weather and NWP data.
 Strict scope: heavy rainfall → early warning → inundation prediction. No
 unrelated disaster modules.
 
@@ -15,10 +15,10 @@ unrelated disaster modules.
 |---|---|
 | Satellite data | NASA GIBS true-color + 7-2-1 false color (`/api/satellite`, ImageryCards, map overlays) |
 | Radar data | RainViewer animated tiles (`/api/radar`, CommandMap timeline) |
-| Observational weather | Open-Meteo current + hourly (`/api/weather`) |
+| Current conditions | Open-Meteo model-derived current + hourly (`/api/weather`); not a ground observation |
 | NWP model data | ECMWF IFS / GFS / ICON / GEM via Open-Meteo (`/api/nwp`) |
 | AI/ML prediction | Transparent weighted-fusion prototype (`lib/engine.ts`); training path in `training/` |
-| Inundation prediction | Model-estimate probability + class (`computeRisk().inundation`) |
+| Inundation prediction | Uncalibrated 0–100 risk index + class + factor coverage (`computeRisk().inundation`) |
 | Early warning | 5-level threshold engine + drivers (WarningCard, XAI panel) |
 
 ## System architecture
@@ -45,8 +45,29 @@ fake data. See Methodology drawer in-app for attribution.
 
 Units: rainfall mm, intensity mm/h, temperature °C, pressure hPa, wind km/h
 (Open-Meteo native), soil moisture m³/m³ (provider-native, labelled),
-coordinates decimal degrees. Times are location-local ISO (IST scope, labelled
-IST in UI) with UTC `fetchedAt` provenance. Data age shown per panel.
+coordinates decimal degrees. All computation uses UTC Unix seconds; API
+timestamps are explicit UTC ISO. The UI renders IST only at presentation.
+Data age shown per panel.
+
+## Phase 1 correctness fixes
+
+- Open-Meteo local timestamps are converted to Unix seconds using the
+  response's `utc_offset_seconds`; NWP alignment compares Unix seconds.
+- Open-Meteo `current.precipitation` is a 15-minute amount. It is exposed as
+  `precipitationMM15` and converted to `precipitationRateMMH` (×4); the raw
+  amount is never labelled mm/h.
+- Missing hours and missing NWP values remain `null`; a multi-hour
+  accumulation is withheld unless every expected hour exists. Offline models
+  never contribute zeros. `accumCoverage` discloses window completeness.
+- Risk inputs are nullable; unavailable feature weights are renormalized over
+  available inputs and `coverage01` is returned. With no inputs the score is
+  marked not computed, not `NORMAL`.
+- Inundation is an **uncalibrated risk index 0–100** with factor coverage,
+  not a probability. `UNKNOWN` is returned when no factors are available.
+- Radar readiness comes from the newest actual frame; system status is derived
+  from live source health. Provider fetches have timeouts and one safe retry.
+- Regression suite: `npm run test:unit` (45 tests), including Unix-independent
+  engine coverage, null handling, amount→rate conversion, and radar health.
 
 ## AI engine
 
@@ -59,13 +80,15 @@ not an IMD prediction.
 ## Inundation engine
 
 `0.42·acc24 + 0.22·intensity + 0.14·soil + 0.12·antecedent + 0.10·elevation`
-→ LOW/MODERATE/HIGH/SEVERE. Always **MODEL ESTIMATE — NOT OBSERVED FLOOD
-EXTENT**. No DEM/slope/drainage connected (`lib/terrain.ts` interface ready).
+over available factors (weights renormalized) → 0–100 **risk index** and
+LOW/MODERATE/HIGH/SEVERE/UNKNOWN, with factor coverage disclosed. Always
+**MODEL ESTIMATE — NOT OBSERVED FLOOD EXTENT**. No DEM/slope/drainage
+connected (`lib/terrain.ts` interface ready).
 
 ## NWP consensus
 
 Models compared over an **aligned common-timestamp 24h window** (offline
-models excluded, never zero-filled). Agreement = `1 − σ/μ` (1.0 when all dry);
+models excluded, never zero-filled). Agreement = `max(0, 1 − spread/max(mean, 2 mm))` (1.0 when all dry);
 spread = max−min (mm); confidence HIGH/MODERATE/LOW from availability + spread
 — statistical only, never called “AI confidence”. Run/init times are not
 published by the provider (stated in-UI).

@@ -53,4 +53,41 @@ describe("computeRisk bands + renormalization", () => {
     assert.equal(r.inundation.isEstimate, true);
     assert.match(r.inundation.terrainNote, /DEM\/slope/);
   });
+  it("missing accumulation windows renormalize and disclose coverage", () => {
+    const r = computeRisk({ ...base, accum6: null, accum24: null, nwpMean24: null, agreement01: null });
+    assert.ok(r.coverage01 < 1);
+    assert.equal(r.renormalized, true);
+    assert.match(r.renormNote ?? "", /6h accumulation/);
+    assert.match(r.renormNote ?? "", /24h accumulation/);
+    assert.match(r.renormNote ?? "", /NWP consensus/);
+    assert.equal(r.contributions.find((c) => c.feature === "6-hour accumulation")?.points, 0);
+    assert.equal(r.contributions.find((c) => c.feature === "24-hour accumulation")?.available, false);
+  });
+  it("all-null inputs produce no score and UNKNOWN inundation", () => {
+    const r = computeRisk({
+      ...base,
+      rainRateMMH: null, accum1: null, accum3: null, accum6: null, accum12: null,
+      accum24: null, accum48: null, antecedent24: null, precipProbMax: null,
+      humidity: null, pressureMSL: null, soilMoisture: null, elevationM: null,
+      agreement01: null, nwpMean24: null,
+    });
+    assert.equal(r.score, 0);
+    assert.equal(r.coverage01, 0);
+    assert.match(r.renormNote ?? "", /not computed/);
+    assert.equal(r.inundation.class, "UNKNOWN");
+    assert.equal(r.inundation.riskIndex, 0);
+    assert.equal(r.inundation.coverage01, 0);
+  });
+  it("inundation risk index is 0-100 with factor coverage", () => {
+    const r = computeRisk({ ...base, rainRateMMH: 8, accum24: 60, antecedent24: 30, soilMoisture: 0.3 });
+    assert.ok(r.inundation.riskIndex >= 0 && r.inundation.riskIndex <= 100);
+    assert.ok(r.inundation.coverage01 > 0 && r.inundation.coverage01 <= 1);
+  });
+  it("single-model NWP keeps the real mean and discloses unavailable agreement", () => {
+    const r = computeRisk({ ...base, nwpMean24: 24, agreement01: null });
+    const nwp = r.contributions.find((c) => c.feature === "NWP consensus");
+    assert.equal(nwp?.available, true);
+    assert.ok((nwp?.points ?? 0) > 0);
+    assert.match(nwp?.detail ?? "", /no consensus adjustment/);
+  });
 });

@@ -29,7 +29,7 @@ export default function LiveMap({
   radar,
   satLayers,
   level,
-  inundProb,
+  inundRisk,
   onCity,
 }: {
   lat: number;
@@ -38,7 +38,7 @@ export default function LiveMap({
   radar: { status: SourceStatus; host: string; past: { time: number; path: string }[]; generated: number };
   satLayers: SatLayer[];
   level: WarningLevel;
-  inundProb: number;
+  inundRisk: number;
   onCity: (lat: number, lon: number, name: string) => void;
 }) {
   const [frame, setFrame] = useState(0);
@@ -66,7 +66,9 @@ export default function LiveMap({
   );
   const activeSat = gibsOptions.find((l) => l.id === satId) ?? gibsOptions[0];
   const radarLive = radar.status === "LIVE" && frames.length > 0;
-  const frameTime = frames[frame] ? new Date(frames[frame].time * 1000).toLocaleString("en-IN") : "—";
+  const frameTime = frames[frame]
+    ? `${new Date(frames[frame].time * 1000).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false })} IST`
+    : "—";
   const toggle = (k: keyof typeof layers) => setLayers((s) => ({ ...s, [k]: !s[k] }));
 
   const chip = (k: "radar" | "satellite" | "terrain" | "risk", name: string, disabled = false, note?: string) => (
@@ -113,12 +115,12 @@ export default function LiveMap({
           <Circle
             center={[lat, lon]}
             radius={65000}
-            pathOptions={{ color: LEVEL_COLOR[level], fillColor: LEVEL_COLOR[level], fillOpacity: 0.1 + inundProb * 0.15 }}
+            pathOptions={{ color: LEVEL_COLOR[level], fillColor: LEVEL_COLOR[level], fillOpacity: 0.1 + (inundRisk / 100) * 0.15 }}
           >
             <Popup>
               <b>{label}</b>
               <br />
-              Inundation probability (MODEL ESTIMATE — NOT OBSERVED FLOOD EXTENT): {Math.round(inundProb * 100)}%
+              Inundation risk index (UNCALIBRATED MODEL ESTIMATE — NOT OBSERVED FLOOD EXTENT): {inundRisk}/100
             </Popup>
           </Circle>
         )}

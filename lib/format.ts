@@ -1,10 +1,8 @@
 /**
- * Time handling contract: Open-Meteo `timezone=auto` returns ISO timestamps in
- * the *location's* local zone without an offset. All demo locations are in
- * India (IST, UTC+5:30, no DST), so parsing in the browser zone is consistent
- * for the India-first scope. UI labels always say IST explicitly; UTC is kept
- * in provenance payloads. If non-IST locations are ever added, pass explicit
- * offsets instead of relying on this assumption.
+ * Time handling contract: computation uses UTC Unix seconds; provider-local
+ * ISO strings are converted at ingestion (see lib/providers.ts). API payloads
+ * emit UTC ISO strings. All user-facing times are rendered explicitly in IST,
+ * independent of the browser or server timezone.
  */
 export const IST = "Asia/Kolkata";
 
@@ -22,6 +20,13 @@ export function fmtIST(iso: string, withSec = false): string {
       hour12: false,
     }) + " IST"
   );
+}
+
+/** Format a provider calendar date (YYYY-MM-DD) in IST without browser-zone drift. */
+export function fmtDay(dateOnly: string): string {
+  const d = new Date(`${dateOnly}T00:00:00+05:30`);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-IN", { timeZone: IST, weekday: "short", day: "2-digit", month: "short" });
 }
 
 export function fmtClock(iso: string): string {

@@ -15,7 +15,7 @@ export default function InundationPanel({
   const risk = live ? analysis?.risk : undefined;
   const terrain = analysis?.terrain;
   const rivers = analysis?.rivers;
-  const color = risk ? LEVEL_COLOR[risk.level] : "#8190a8";
+  const color = risk && risk.inundation.class !== "UNKNOWN" ? LEVEL_COLOR[risk.level] : "#8190a8";
 
   const layers: { name: string; on: boolean; why: string }[] = [
     { name: "Predicted extent (model)", on: true, why: "Fusion-estimate zone drawn around the analysis point — schematic, not observed water." },
@@ -41,10 +41,10 @@ export default function InundationPanel({
         <>
           <div className="inundScore" style={{ borderColor: `${color}55` }}>
             <div>
-              <span className="metricLabel">Probability · class</span>
-              <b className="rBig" style={{ fontSize: 26 }}>{Math.round(risk.inundation.prob01 * 100)}% <span style={{ color }}>{risk.inundation.class}</span></b>
+              <span className="metricLabel">Uncalibrated risk index · class</span>
+              <b className="rBig" style={{ fontSize: 26 }}>{risk.inundation.riskIndex} <span style={{ color }}>/ 100 · {risk.inundation.class}</span></b>
             </div>
-            <span className="prov" style={{ margin: 0 }}>{label}</span>
+            <span className="prov" style={{ margin: 0 }}>{label} · factor coverage {Math.round(risk.inundation.coverage01 * 100)}%</span>
           </div>
 
           <div className="metricLabel" style={{ marginTop: 12 }}>Inundation layers</div>
@@ -73,6 +73,7 @@ export default function InundationPanel({
             ))}
           </div>
           <p className="prov">{risk.inundation.terrainNote}</p>
+          {risk.inundation.factorsNote && <p className="prov">{risk.inundation.factorsNote}</p>}
         </>
       )}
       <p className="prov">

@@ -4,14 +4,15 @@ export const revalidate = 60;
 export const dynamic = "force-dynamic";
 
 async function probe(url: string, ms: number): Promise<boolean> {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), ms);
   try {
-    const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), ms);
     const r = await fetch(url, { signal: ctl.signal, method: "GET" });
-    clearTimeout(t);
     return r.ok;
   } catch {
     return false;
+  } finally {
+    clearTimeout(t);
   }
 }
 

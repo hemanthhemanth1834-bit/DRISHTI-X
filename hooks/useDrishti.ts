@@ -14,12 +14,16 @@ export interface AnalysisPayload {
   fetchedAt: string;
   provenance?: { weather: { source: string; time: string; status: SourceStatus }; elevation: { valueM: number | null; status: SourceStatus }; modelsLive: number };
   current?: {
-    time: string; temperature: number; humidity: number; precipitation: number;
+    time: string; timeUnix: number | null; temperature: number; humidity: number;
+    precipitationMM15: number | null; precipitationRateMMH: number | null;
+    /** @deprecated legacy raw 15-minute amount; use precipitationRateMMH. */
+    precipitation: number;
     pressure: number; windSpeed: number; windDir: number; cloudCover: number; soilMoisture: number | null;
   };
-  hourly?: { time: string[]; precipitation: (number | null)[]; probability: (number | null)[] };
+  hourly?: { time: string[]; timeUnix?: number[]; precipitation: (number | null)[]; probability: (number | null)[] };
   hourlyGaps?: number;
-  accum?: { h1: number; h3: number; h6: number; h12: number; h24: number; h48: number };
+  accum?: { h1: number | null; h3: number | null; h6: number | null; h12: number | null; h24: number | null; h48: number | null };
+  accumCoverage?: { h1: number; h3: number; h6: number; h12: number; h24: number; h48: number };
   daily?: {
     time: string[];
     tmax: (number | null)[];
@@ -28,16 +32,16 @@ export interface AnalysisPayload {
     pprob: (number | null)[];
   };
   models?: ModelRain[];
-  agreement01?: number;
-  spreadMM?: number;
+  agreement01?: number | null;
+  spreadMM?: number | null;
   nwpWindowH?: number;
   nwpWindowNote?: string;
   consensus?: "LOW" | "MODERATE" | "HIGH";
-  nwpMean24?: number;
+  nwpMean24?: number | null;
   elevationM?: number | null;
   risk?: EngineOutput;
   quality?: { suspect: string[]; note?: string; checks?: { field: string; ok: boolean; note: string }[] };
-  warning?: { level: string; score: number; validFrom: string; validUntil: string; dedupeKey: string };
+  warning?: { level: string; score: number; coverage01?: number; validFrom: string; validUntil: string; dedupeKey: string };
   rivers?: { status: string; list: { name: string; kind: string; distKm: number }[]; note: string; source?: string };
   terrain?: { status: string; meanM: number | null; minM?: number | null; maxM?: number | null; reliefM: number | null; lowlandFrac: number | null; note: string; source?: string };
   ml?: {
@@ -57,6 +61,7 @@ export interface RadarState {
   past: { time: number; path: string }[];
   nowcast: { time: number; path: string }[];
   generated: number;
+  latestAgeMin?: number | null;
   fetchedAt: string;
 }
 

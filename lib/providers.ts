@@ -1,19 +1,58 @@
 /** Server-side free-data providers. Only imported by app/api routes. */
+import { amountToRate, CURRENT_PRECIP_INTERVAL_MIN } from "@/lib/normalize";
+import { toUnixSeconds } from "@/lib/time";
 
 const UA = { "User-Agent": "DRISHTI-X-PS26071 research demo (SIH)" };
+const UPSTREAM_TIMEOUT_MS = 7000;
 
-async function getJSON(url: string, revalidate: number) {
-  const r = await fetch(url, { headers: UA, next: { revalidate } });
-  if (!r.ok) throw new Error(`upstream ${r.status}`);
-  return r.json();
+/**
+ * Cached upstream fetch with a hard timeout and one retry for transient
+ * failures (network / 429 / 5xx). 4xx responses are not retried.
+ * Every caller gets a bounded request so one slow provider cannot hold the
+ * whole analysis route open.
+ */
+async function getJSON<T>(url: string, revalidate: number): Promise<T> {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), UPSTREAM_TIMEOUT_MS);
+    try {
+      const r = await fetch(url, { headers: UA, next: { revalidate }, signal: ctl.signal });
+      if (!r.ok) {
+        const retryable = r.status === 429 || r.status >= 500;
+        const err = new Error(`upstream ${r.status}`);
+        if (!retryable) throw Object.assign(err, { retryable: false });
+        throw Object.assign(err, { retryable: true });
+      }
+      return await r.json();
+    } catch (e) {
+      lastError = e;
+      const retryable = (e as { retryable?: boolean })?.retryable !== false;
+      if (!retryable || attempt === 1) throw e;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw lastError ?? new Error("upstream request failed");
+}
+
+function unixOrNull(iso: string, offset: number): number | null {
+  return toUnixSeconds(iso, offset);
 }
 
 export interface OpenMeteoWeather {
   current: {
     time: string;
+    /** Unix seconds derived from the location-local timestamp + UTC offset. */
+    timeUnix: number | null;
     temperature_2m: number;
     relative_humidity_2m: number;
+    /** Raw provider amount for the preceding interval (mm / 15 min). */
     precipitation: number;
+    /** Raw amount, explicitly named. Never label this as mm/h. */
+    precipitationMM15: number | null;
+    /** Converted rate (mm/h) for display and scoring. */
+    precipitationRateMMH: number | null;
     weather_code: number;
     cloud_cover: number;
     pressure_msl: number;
@@ -22,6 +61,7 @@ export interface OpenMeteoWeather {
   };
   hourly: {
     time: string[];
+    timeUnix: (number | null)[];
     precipitation: (number | null)[];
     precipitation_probability: (number | null)[];
     temperature_2m: number[];
@@ -54,7 +94,22 @@ export async function fetchWeather(lat: number, lon: number): Promise<OpenMeteoW
     forecast_days: "7",
     past_days: "1",
   });
-  return getJSON(`https://api.open-meteo.com/v1/forecast?${params}`, 600);
+  const j = await getJSON<OpenMeteoWeather>(`https://api.open-meteo.com/v1/forecast?${params}`, 600);
+  const offset = Number.isFinite(j.utc_offset_seconds) ? j.utc_offset_seconds : 0;
+  const timeUnix = (j.hourly?.time ?? []).map((t) => unixOrNull(t, offset));
+  const currentAmount = typeof j.current?.precipitation === "number" && Number.isFinite(j.current.precipitation)
+    ? j.current.precipitation
+    : null;
+  return {
+    ...j,
+    current: {
+      ...j.current,
+      timeUnix: unixOrNull(j.current.time, offset),
+      precipitationMM15: currentAmount,
+      precipitationRateMMH: amountToRate(currentAmount, CURRENT_PRECIP_INTERVAL_MIN),
+    },
+    hourly: { ...j.hourly, timeUnix },
+  };
 }
 
 export interface ModelSpec {
@@ -72,6 +127,8 @@ export const NWP_MODELS: ModelSpec[] = [
 
 export interface ModelSeries {
   times: string[];
+  /** Unix seconds for timezone-safe alignment across Vercel/UTC and IST. */
+  timeUnix: (number | null)[];
   /** Null = provider omitted the value. Never pre-filled as zero. */
   values: (number | null)[];
 }
@@ -89,13 +146,23 @@ export async function fetchModelPrecip(
     timezone: "auto",
     forecast_days: "2",
   });
-  const j = await getJSON(`https://api.open-meteo.com/v1/forecast?${params}`, 1800);
+  type ModelPayload = {
+    utc_offset_seconds?: number;
+    hourly?: { precipitation?: unknown; time?: unknown };
+  };
+  const j = await getJSON<ModelPayload>(`https://api.open-meteo.com/v1/forecast?${params}`, 1800);
   const arr = j?.hourly?.precipitation;
   const times = j?.hourly?.time;
   if (!Array.isArray(arr) || !Array.isArray(times) || arr.length !== times.length) {
     throw new Error("unexpected model payload shape");
   }
-  return { times: times as string[], values: (arr as unknown[]).map((v) => (typeof v === "number" && Number.isFinite(v) ? v : null)) };
+  const offset = typeof j.utc_offset_seconds === "number" ? j.utc_offset_seconds : 0;
+  const iso = times as string[];
+  return {
+    times: iso,
+    timeUnix: iso.map((t) => unixOrNull(t, offset)),
+    values: (arr as unknown[]).map((v) => (typeof v === "number" && Number.isFinite(v) ? v : null)),
+  };
 }
 
 export interface RadarMeta {
@@ -106,7 +173,12 @@ export interface RadarMeta {
 }
 
 export async function fetchRadar(): Promise<RadarMeta> {
-  const j = await getJSON("https://api.rainviewer.com/public/weather-maps.json", 300);
+  type RadarPayload = {
+    host?: string;
+    generated?: number;
+    radar?: { past?: { time: number; path: string }[]; nowcast?: { time: number; path: string }[] };
+  };
+  const j = await getJSON<RadarPayload>("https://api.rainviewer.com/public/weather-maps.json", 300);
   if (!j?.host || !Array.isArray(j?.radar?.past)) throw new Error("bad radar payload");
   return { host: j.host, generated: j.generated ?? 0, past: j.radar.past, nowcast: j.radar.nowcast ?? [] };
 }
@@ -131,7 +203,7 @@ export function gibsDate(daysBack = 1): string {
 
 export async function fetchElevation(lat: number, lon: number): Promise<number | null> {
   try {
-    const j = await getJSON(
+    const j = await getJSON<{ elevation?: unknown[] }>(
       `https://api.open-meteo.com/v1/elevation?latitude=${lat}&longitude=${lon}`,
       86400
     );

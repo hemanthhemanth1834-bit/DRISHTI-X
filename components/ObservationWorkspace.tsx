@@ -9,7 +9,7 @@ import type { SourceStatus } from "@/lib/locations";
 /**
  * Synchronized observation workspace: every stage reads the SAME live
  * analysis payload + provider states — no new fetches, no new APIs.
- * Satellite → Radar → Observations → NWP → AI → Inundation → Warning.
+ * Satellite → Radar → Current conditions → NWP → AI → Inundation → Warning.
  */
 export default function ObservationWorkspace({
   analysis,
@@ -45,10 +45,10 @@ export default function ObservationWorkspace({
           : ["RADAR DATA UNAVAILABLE"],
     },
     {
-      name: "Observations",
+      name: "Current conditions",
       status: live ? "LIVE" : "OFFLINE",
       lines: c
-        ? [`${formatNum(c.temperature, 1, "°C")} · rain ${formatNum(c.precipitation, 1, " mm/h")}`, `RH ${formatNum(c.humidity, 0, "%")} · wind ${formatNum(c.windSpeed, 0, " km/h")}`]
+        ? [`${formatNum(c.temperature, 1, "°C")} · rain ${formatNum(c.precipitationRateMMH, 1, " mm/h")}`, `RH ${formatNum(c.humidity, 0, "%")} · wind ${formatNum(c.windSpeed, 0, " km/h")} · model-derived`]
         : ["SOURCE UNAVAILABLE"],
     },
     {
@@ -56,7 +56,7 @@ export default function ObservationWorkspace({
       status: (analysis?.provenance?.modelsLive ?? 0) > 0 ? "LIVE" : "OFFLINE",
       lines:
         models.length > 0
-          ? [`${analysis?.provenance?.modelsLive ?? 0}/4 live · agree ${Math.round((analysis?.agreement01 ?? 0) * 100)}%`, models.filter((m) => m.status === "LIVE").map((m) => `${m.label} ${m.precipMM == null ? "—" : `${m.precipMM.toFixed(1)}mm`}`).join(" · ") || "no live totals"]
+          ? [`${analysis?.provenance?.modelsLive ?? 0}/4 live · agree ${analysis?.agreement01 == null ? "—" : `${Math.round(analysis.agreement01 * 100)}%`}`, models.filter((m) => m.status === "LIVE").map((m) => `${m.label} ${m.precipMM == null ? "—" : `${m.precipMM.toFixed(1)}mm`}`).join(" · ") || "no live totals"]
           : ["SOURCE UNAVAILABLE"],
     },
     {
@@ -67,7 +67,7 @@ export default function ObservationWorkspace({
     {
       name: "Inundation",
       status: risk ? "READY" : "OFFLINE",
-      lines: risk ? [`${Math.round(risk.inundation.prob01 * 100)}% ${risk.inundation.class}`, "MODEL ESTIMATE — not observed"] : ["awaiting inputs"],
+      lines: risk ? [`${risk.inundation.riskIndex}/100 ${risk.inundation.class} · coverage ${Math.round(risk.inundation.coverage01 * 100)}%`, "UNCALIBRATED MODEL ESTIMATE — not observed"] : ["awaiting inputs"],
     },
     {
       name: "Warning",
@@ -78,7 +78,7 @@ export default function ObservationWorkspace({
 
   return (
     <div className="panel wsPanel" aria-label="Synchronized observation workspace">
-      <div className="metricLabel">Observation workspace — one location, one chain: {label}</div>
+      <div className="metricLabel">Evidence chain — one location, one analysis: {label}</div>
       <ol className="wsChain">
         {stages.map((s, i) => (
           <li key={s.name}>
@@ -90,7 +90,7 @@ export default function ObservationWorkspace({
           </li>
         ))}
       </ol>
-      <p className="prov">All stages share the same {label} analysis ({formatPrecip(analysis?.accum?.h24)} / 24h). Observation ≠ model ≠ estimate.</p>
+      <p className="prov">All stages share the same {label} analysis ({formatPrecip(analysis?.accum?.h24)} / 24h; — means incomplete, never zero). Current conditions are model-derived, not ground observations. Provider model values ≠ this app&apos;s estimates.</p>
     </div>
   );
 }

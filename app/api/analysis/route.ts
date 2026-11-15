@@ -1,48 +1,64 @@
 import { NextResponse } from "next/server";
-import { NWP_MODELS, fetchElevation, fetchModelPrecip, fetchWeather, validCoords, type ModelSeries } from "@/lib/providers";
+import { NWP_MODELS, fetchElevation, fetchModelPrecip, fetchRadar, fetchWeather, validCoords, type ModelSeries } from "@/lib/providers";
 import { agreementOf, computeRisk, consensusConfidence, spreadOf, type ModelRainInput } from "@/lib/engine";
 import { qualityReport } from "@/lib/quality";
 import { fetchRivers } from "@/lib/rivers";
 import { buildMlFeatures, mlHeavyProbability, ML_VERSION, ML_HEAVY_MM, ML_VALIDATION } from "@/lib/ml";
+import { amountToRate } from "@/lib/normalize";
+import { radarHealth } from "@/lib/radar";
 import { sampleTerrain } from "./terrain";
 
 export const revalidate = 600;
 export const dynamic = "force-dynamic";
+// Bounded provider fan-out: weather retry (≤14s) + terrain (≤12s) run in
+// parallel, but this leaves headroom for slow upstreams on serverless.
+export const maxDuration = 30;
 
-function sumWindow(arr: (number | null)[], nowIdx: number, hours: number, past = false): number {
-  let s = 0;
-  if (past) {
-    for (let i = Math.max(0, nowIdx - hours); i < nowIdx; i++) s += arr[i] ?? 0;
-  } else {
-    for (let i = nowIdx; i < Math.min(arr.length, nowIdx + hours); i++) s += arr[i] ?? 0;
-  }
-  return Math.round(s * 10) / 10;
-}
-
-/** Nulls are skipped by sums but counted: gaps are reported, never zero-filled silently. */
-function countGaps(arr: (number | null)[], nowIdx: number, hours: number): number {
-  let n = 0;
-  for (let i = nowIdx; i < Math.min(arr.length, nowIdx + hours); i++) if (arr[i] == null) n++;
-  return n;
+interface WindowSum {
+  value: number | null;
+  missing: number;
+  expected: number;
+  coverage01: number;
 }
 
 /**
- * Common-window alignment: model grids cover ~48h from local midnight, so the
- * comparable window is the intersection of the requested future hours with
- * every RESPONDING model grid (identical timestamps for those models, never
- * zero-filled). A model that failed to respond is reported OFFLINE on its own
- * and does not collapse the comparison window for the others.
+ * Sum an exact window. If any expected hour is missing (provider gap or past
+ * the grid edge), the total is null rather than a partial sum presented as a
+ * complete accumulation. Coverage is returned so the UI can disclose it.
  */
-function commonWindow(future: string[], series: (ModelSeries | null)[]): { times: string[]; live: boolean[] } {
+function sumWindow(arr: (number | null)[], nowIdx: number, hours: number, past = false): WindowSum {
+  const start = past ? nowIdx - hours : nowIdx;
+  const end = past ? nowIdx : nowIdx + hours;
+  let sum = 0;
+  let missing = 0;
+  for (let i = start; i < end; i++) {
+    const v = i >= 0 && i < arr.length ? arr[i] : null;
+    if (typeof v === "number" && Number.isFinite(v)) sum += v;
+    else missing++;
+  }
+  return {
+    value: missing === 0 ? Math.round(sum * 10) / 10 : null,
+    missing,
+    expected: hours,
+    coverage01: Math.round(((hours - missing) / hours) * 100) / 100,
+  };
+}
+
+/**
+ * Common-window alignment by Unix second: identical real instants for every
+ * responding model regardless of server/browser timezone. A model that failed
+ * to respond is OFFLINE on its own and never collapses the others' window.
+ */
+function commonWindow(futureUnix: number[], series: (ModelSeries | null)[]): { unix: number[]; live: boolean[] } {
   const present = series.filter((s): s is ModelSeries => s != null);
-  const sets = present.map((s) => new Set(s.times));
-  const times = sets.length === 0 ? [] : future.filter((t) => sets.every((set) => set.has(t))).slice(0, 48);
+  const sets = present.map((s) => new Set(s.timeUnix.filter((t): t is number => typeof t === "number")));
+  const unix = sets.length === 0 ? [] : futureUnix.filter((t) => sets.every((set) => set.has(t))).slice(0, 48);
   const live = series.map((s) => {
     if (!s) return false;
-    const set = new Set(s.times);
-    return times.length >= 12 && times.every((t) => set.has(t));
+    const set = new Set(s.timeUnix.filter((t): t is number => typeof t === "number"));
+    return unix.length >= 12 && unix.every((t) => set.has(t));
   });
-  return { times, live };
+  return { unix, live };
 }
 
 export async function GET(req: Request) {
@@ -55,8 +71,9 @@ export async function GET(req: Request) {
   }
   const fetchedAt = new Date().toISOString();
   try {
-    // River context resolves concurrently and never blocks the analysis.
-    const [wx, elev, rivers, terrain, ...modelSets] = await Promise.all([
+    // Independent sources resolve concurrently; optional context never blocks
+    // the core weather/risk response.
+    const [wx, elev, rivers, terrain, radarMeta, ...modelSets] = await Promise.all([
       fetchWeather(lat, lon),
       fetchElevation(lat, lon),
       fetchRivers(lat, lon).catch(
@@ -66,71 +83,111 @@ export async function GET(req: Request) {
         status: "OFFLINE" as const, meanM: null, minM: null, maxM: null, reliefM: null,
         lowlandFrac: null, zoom: 12, note: "Terrain tiles unavailable.",
       })),
+      fetchRadar().catch(() => null),
       ...NWP_MODELS.map((m) => fetchModelPrecip(lat, lon, m.id).catch(() => null as ModelSeries | null)),
     ]);
-    const times = wx.hourly.time;
-    let nowIdx = times.findIndex((t) => new Date(t).getTime() > Date.now() - 30 * 60e3);
+
+    const nowSec = Date.now() / 1000;
+    let nowIdx = wx.hourly.timeUnix.findIndex((t) => typeof t === "number" && t > nowSec - 30 * 60);
     if (nowIdx < 0) nowIdx = 0;
     const P = wx.hourly.precipitation ?? [];
     const PP = wx.hourly.precipitation_probability ?? [];
-    const futureTimes = times.slice(nowIdx, nowIdx + 48);
-    const common = commonWindow(futureTimes, modelSets);
+    // Pair ISO, Unix and values once; drop only rows without a computable time.
+    const forecast = wx.hourly.time
+      .map((iso, i) => ({ iso, unix: wx.hourly.timeUnix[i], p: P[i] ?? null, pp: PP[i] ?? null }))
+      .slice(nowIdx)
+      .filter((row): row is { iso: string; unix: number; p: number | null; pp: number | null } => typeof row.unix === "number")
+      .slice(0, 48);
+    const futureUnix = forecast.map((row) => row.unix);
+    const futureTimes = forecast.map((row) => new Date(row.unix * 1000).toISOString());
+    const futureP = forecast.map((row) => row.p);
+    const futurePP = forecast.map((row) => row.pp);
+    const common = commonWindow(futureUnix, modelSets);
 
     const models: ModelRainInput[] = NWP_MODELS.map((m, i) => {
       const s = modelSets[i];
       const ok = s != null && common.live[i];
       if (!ok || !s) {
-        return { model: m.id, label: m.label, resolution: m.resolution, precipMM24: 0, maxIntensityMMH: 0, status: "OFFLINE" as const };
+        return {
+          model: m.id, label: m.label, resolution: m.resolution,
+          precipMM24: null, precipMM: null, maxIntensityMMH: null, status: "OFFLINE" as const,
+        };
       }
-      const idx = new Map(s.times.map((t, k) => [t, k] as [string, number]));
-      const vals: (number | null)[] = common.times.map((t) => s.values[idx.get(t) ?? -1] ?? null);
-      const d24 = vals.slice(0, 24).filter((v): v is number => typeof v === "number");
-      if (d24.length === 0) {
-        // Model responded but carried no usable values: unavailable, never zero.
-        return { model: m.id, label: m.label, resolution: m.resolution, precipMM24: 0, maxIntensityMMH: 0, status: "OFFLINE" as const };
-      }
+      const idx = new Map<number, number>();
+      s.timeUnix.forEach((t, k) => { if (typeof t === "number") idx.set(t, k); });
+      const vals: (number | null)[] = common.unix.map((t) => {
+        const k = idx.get(t);
+        return k == null ? null : s.values[k] ?? null;
+      });
+      const d24 = vals.slice(0, 24);
+      // A 24h total is available only when all 24 values exist. Never sum a
+      // partial window and call it 24h rainfall.
+      const complete24 = d24.length === 24 && d24.every((v): v is number => typeof v === "number");
+      const finite = vals.filter((v): v is number => typeof v === "number");
+      const total24 = complete24 ? Math.round((d24 as number[]).reduce((a, x) => a + x, 0) * 10) / 10 : null;
       return {
         model: m.id,
         label: m.label,
         resolution: m.resolution,
-        // Canonical UI field (matches /api/nwp). precipMM24 kept for the engine input type.
-        precipMM: Math.round(d24.reduce((a, x) => a + x, 0) * 10) / 10,
-        precipMM24: Math.round(d24.reduce((a, x) => a + x, 0) * 10) / 10,
-        maxIntensityMMH: Math.round(Math.max(...d24) * 10) / 10,
+        precipMM: total24,
+        precipMM24: total24,
+        maxIntensityMMH: finite.length ? Math.round(Math.max(...finite) * 10) / 10 : null,
         status: "LIVE" as const,
       };
     });
-    const liveVals = models.filter((m) => m.status === "LIVE").map((m) => m.precipMM24);
-    const agreement01 = Math.round(agreementOf(liveVals) * 100) / 100;
-    const spreadMM = spreadOf(liveVals);
-    const nwpMean24 = liveVals.length ? Math.round((liveVals.reduce((s, v) => s + v, 0) / liveVals.length) * 10) / 10 : 0;
-    const consensus = consensusConfidence(liveVals.length, spreadMM, nwpMean24);
+    const liveVals = models
+      .filter((m) => m.status === "LIVE" && typeof m.precipMM24 === "number")
+      .map((m) => m.precipMM24 as number);
+    const agreement01 = liveVals.length >= 2 ? Math.round(agreementOf(liveVals) * 100) / 100 : null;
+    const spreadMM = liveVals.length >= 2 ? spreadOf(liveVals) : null;
+    const nwpMean24 = liveVals.length
+      ? Math.round((liveVals.reduce((s, v) => s + v, 0) / liveVals.length) * 10) / 10
+      : null;
+    const consensus = consensusConfidence(liveVals.length, spreadMM ?? 0, nwpMean24 ?? 0);
+    const radar = radarHealth(radarMeta);
+
     const c = wx.current;
     const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
     const soil = wx.hourly.soil_moisture_3_9cm?.[nowIdx];
+    const currentAmountMM15 = num(c.precipitation);
+    const currentRateMMH = amountToRate(currentAmountMM15);
     // Plausibility gates: suspect values become missing (renormalized + disclosed).
     const quality = qualityReport({
       temperature: num(c.temperature_2m),
       humidity: num(c.relative_humidity_2m),
       pressure: num(c.pressure_msl),
       windSpeed: num(c.wind_speed_10m),
-      rainRate: num(c.precipitation),
+      rainRate: currentRateMMH,
       cloudCover: num(c.cloud_cover),
       soilMoisture: typeof soil === "number" ? soil : null,
     });
     const suspect = new Set(quality.suspect);
     const qv = (k: string, v: number | null): number | null => (suspect.has(k) ? null : v);
+
+    const w1 = sumWindow(P, nowIdx, 1);
+    const w3 = sumWindow(P, nowIdx, 3);
+    const w6 = sumWindow(P, nowIdx, 6);
+    const w12 = sumWindow(P, nowIdx, 12);
+    const w24 = sumWindow(P, nowIdx, 24);
+    const w48 = sumWindow(P, nowIdx, 48);
+    const wPast24 = sumWindow(P, nowIdx, 24, true);
+    const accum = { h1: w1.value, h3: w3.value, h6: w6.value, h12: w12.value, h24: w24.value, h48: w48.value };
+    const accumCoverage = {
+      h1: w1.coverage01, h3: w3.coverage01, h6: w6.coverage01,
+      h12: w12.coverage01, h24: w24.coverage01, h48: w48.coverage01,
+    };
+
     const risk = computeRisk({
-      rainRateMMH: qv("rainRate", num(c.precipitation)),
-      accum1: sumWindow(P, nowIdx, 1),
-      accum3: sumWindow(P, nowIdx, 3),
-      accum6: sumWindow(P, nowIdx, 6),
-      accum12: sumWindow(P, nowIdx, 12),
-      accum24: sumWindow(P, nowIdx, 24),
-      accum48: sumWindow(P, nowIdx, 48),
-      antecedent24: sumWindow(P, nowIdx, 24, true),
+      rainRateMMH: qv("rainRate", currentRateMMH),
+      accum1: w1.value,
+      accum3: w3.value,
+      accum6: w6.value,
+      accum12: w12.value,
+      accum24: w24.value,
+      accum48: w48.value,
+      antecedent24: wPast24.value,
       precipProbMax: (() => {
-        const ps = PP.slice(nowIdx, nowIdx + 24).filter((v): v is number => typeof v === "number");
+        const ps = futurePP.slice(0, 24).filter((v): v is number => typeof v === "number");
         return ps.length ? Math.max(...ps) : null;
       })(),
       humidity: qv("humidity", num(c.relative_humidity_2m)),
@@ -139,7 +196,7 @@ export async function GET(req: Request) {
       elevationM: elev,
       agreement01,
       nwpMean24,
-      radarStatus: "READY",
+      radarStatus: radar.status,
     });
     // Drainage context (display only — the score does not ingest it; the
     // engine signature is unchanged so this stays a labelled indicator).
@@ -176,27 +233,38 @@ export async function GET(req: Request) {
       lon,
       fetchedAt,
       units: {
-        precipitation: "mm",
-        intensity: "mm/h",
+        precipitation: "mm (hourly amounts); current amount is a 15-minute mm total",
+        intensity: "mm/h (converted from the 15-minute current amount)",
         temperature: "°C",
         pressure: "hPa",
         wind: "km/h",
         soilMoisture: "m³/m³ (provider-native)",
         coordinates: "decimal degrees",
-        time: "location-local ISO (IST for India scope); UTC in fetchedAt",
+        time: "UTC ISO timestamps (timeUnix also supplied); UI renders IST",
       },
       provenance: {
-        weather: { source: "Open-Meteo forecast API (free, no key)", time: c.time, status: "LIVE" as const },
+        weather: {
+          source: "Open-Meteo forecast API (free, no key)",
+          time: c.timeUnix == null ? c.time : new Date(c.timeUnix * 1000).toISOString(),
+          timeUnix: c.timeUnix,
+          status: "LIVE" as const,
+          note: "Model-derived current conditions — not a ground observation.",
+        },
         elevation: { source: "Open-Meteo elevation API (free, no key)", valueM: elev, status: elev == null ? ("OFFLINE" as const) : ("LIVE" as const) },
-        nwpRunNote: "Open-Meteo does not publish per-model run/init timestamps; 24h windows are aligned on common forecast timestamps instead.",
+        nwpRunNote: "Open-Meteo does not publish per-model run/init timestamps; 24h windows are aligned on common forecast Unix timestamps instead.",
         modelsLive: liveVals.length,
         modelsTotal: NWP_MODELS.length,
+        radar: { status: radar.status, latestAgeMin: radar.latestAgeMin },
       },
       current: {
-        time: c.time,
+        time: c.timeUnix == null ? c.time : new Date(c.timeUnix * 1000).toISOString(),
+        timeUnix: c.timeUnix,
         temperature: c.temperature_2m,
         humidity: c.relative_humidity_2m,
-        precipitation: c.precipitation,
+        precipitationMM15: currentAmountMM15,
+        precipitationRateMMH: currentRateMMH,
+        // Legacy field retained for older clients; UI must use the explicit fields.
+        precipitation: currentAmountMM15,
         pressure: c.pressure_msl,
         windSpeed: c.wind_speed_10m,
         windDir: c.wind_direction_10m,
@@ -205,18 +273,13 @@ export async function GET(req: Request) {
       },
       hourly: {
         time: futureTimes,
-        precipitation: P.slice(nowIdx, nowIdx + 48),
-        probability: PP.slice(nowIdx, nowIdx + 48),
+        timeUnix: futureUnix,
+        precipitation: futureP,
+        probability: futurePP,
       },
-      hourlyGaps: countGaps(P, nowIdx, 48),
-      accum: {
-        h1: sumWindow(P, nowIdx, 1),
-        h3: sumWindow(P, nowIdx, 3),
-        h6: sumWindow(P, nowIdx, 6),
-        h12: sumWindow(P, nowIdx, 12),
-        h24: sumWindow(P, nowIdx, 24),
-        h48: sumWindow(P, nowIdx, 48),
-      },
+      hourlyGaps: futureP.filter((v) => v == null).length,
+      accum,
+      accumCoverage,
       daily: {
         time: (wx.daily?.time ?? []).slice(0, 7),
         tmax: (wx.daily?.temperature_2m_max ?? []).slice(0, 7),
@@ -228,11 +291,11 @@ export async function GET(req: Request) {
       agreement01,
       spreadMM,
       consensus,
-      nwpWindowH: common.times.length,
+      nwpWindowH: common.unix.length,
       nwpWindowNote:
-        common.times.length >= 24
-          ? `Models compared over identical ${common.times.length}h common window from forecast start.`
-          : "Common model window shorter than 24h; sums cover the identical available window.",
+        common.unix.length >= 24
+          ? `Models compared over identical ${common.unix.length}h common window from forecast start.`
+          : "Common model window shorter than 24h; sums cover only a complete identical window (otherwise null).",
       nwpMean24,
       elevationM: elev,
       risk,
@@ -255,11 +318,14 @@ export async function GET(req: Request) {
           : "All inputs within documented physical ranges.",
       },
       warning: {
-        level: risk.level,
+        // A zero-coverage score is not a normal warning; keep it distinct in
+        // the API contract even though the internal score defaults to 0.
+        level: risk.coverage01 > 0 ? risk.level : "UNKNOWN",
         score: risk.score,
+        coverage01: risk.coverage01,
         validFrom: fetchedAt,
         validUntil: new Date(new Date(fetchedAt).getTime() + 3 * 3600e3).toISOString(),
-        dedupeKey: `${lat.toFixed(2)},${lon.toFixed(2)}:${risk.level}:${Math.round(sumWindow(P, nowIdx, 6))}mm-6h`,
+        dedupeKey: `${lat.toFixed(2)},${lon.toFixed(2)}:${risk.coverage01 > 0 ? risk.level : "UNKNOWN"}:${accum.h6 == null ? "incomplete" : `${accum.h6}mm-6h`}`,
         thresholds: "DRISHTI-X AI-assisted thresholds (research; not IMD official thresholds)",
         disclaimer: "AI-assisted analysis. Not an official IMD warning. No emergency notifications are sent.",
       },

@@ -48,18 +48,19 @@ export default function Methodology() {
             </ul>
             <h3 className="methH">Inundation & terrain</h3>
             <p className="prov">
-              Inundation probability is a MODEL ESTIMATE — NOT OBSERVED FLOOD EXTENT — from forecast/antecedent rain, soil
-              moisture and point elevation. {TERRAIN_STATUS}.
+              The inundation risk index is an uncalibrated heuristic (0–100), not a probability, and is NOT OBSERVED FLOOD
+              EXTENT. It combines forecast/antecedent rain, soil moisture and point elevation while disclosing factor
+              coverage. {TERRAIN_STATUS}.
             </p>
             <h3 className="methH">Scientific limitations</h3>
             <ul className="methList">
-              <li>No trained ML model ships with this demo; scores come from the documented weighted fusion above.</li>
+              <li>Live warnings come from the documented weighted fusion above. A separately validated experimental rainfall classifier ships for research comparison but is excluded from warning scores.</li>
               <li>No DEM/slope/drainage inputs; inundation rings are schematic, not surveyed flood boundaries.</li>
               <li>NWP run/init times are not published by the provider; consensus uses aligned forecast windows instead. Model identity follows the provider&apos;s documented `models` request contract (responses carry no model echo).</li>
               <li>NWP agreement = max(0, 1 − spread / max(mean, 2 mm)) over identical-window live totals; missing models are excluded, never zero-filled. Bars scale to the largest live total.</li>
-              <li>Hourly provider gaps are preserved as chart breaks and counted per window; accumulation sums skip them. Null inputs always render as unavailable, never as zero.</li>
+              <li>Hourly provider gaps are preserved as chart breaks and counted per window; an accumulation window is withheld (null) when any expected hour is missing. Null inputs always render as unavailable, never as zero.</li>
               <li>Each card derives from its own response section and fetch (analysis / radar / satellite / health); a failed provider marks only its own card OFFLINE, and cards refresh independently.</li>
-              <li>Times assume the India (IST) scope; provider timestamps are location-local ISO.</li>
+              <li>Computation uses UTC Unix seconds; all displayed times are rendered explicitly in IST. Calendar dates are provider-local (India scope).</li>
               <li>Data availability and latency depend on upstream providers; statuses reflect actual fetch outcomes.</li>
             </ul>
           </div>

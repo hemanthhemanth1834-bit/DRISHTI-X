@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test:unit": "tsc tests/engine.test.ts tests/normalize.test.ts tests/quality.test.ts tests/ml.test.ts lib/engine.ts lib/normalize.ts lib/locations.ts lib/quality.ts lib/radar.ts lib/ml.ts --outDir .unit-tmp --module commonjs --target es2022 --moduleResolution node --skipLibCheck --esModuleInterop && node --test \".unit-tmp/tests/*.test.js\" && rmdir /s /q .unit-tmp"
+    "test:unit": "tsc tests/engine.test.ts tests/normalize.test.ts tests/quality.test.ts tests/ml.test.ts tests/radar.test.ts tests/time.test.ts lib/engine.ts lib/normalize.ts lib/locations.ts lib/quality.ts lib/radar.ts lib/time.ts lib/ml.ts --outDir .unit-tmp --module commonjs --target es2022 --moduleResolution node --skipLibCheck --esModuleInterop && node --test \".unit-tmp/tests/*.test.js\" && rmdir /s /q .unit-tmp"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.6",

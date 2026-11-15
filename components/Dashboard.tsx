@@ -30,8 +30,8 @@ import ModelInsightsView from "./ModelInsightsView";
 import DataHealthView from "./DataHealthView";
 import TrainingDocsView from "./TrainingDocsView";
 import { usePointerMotion } from "@/hooks/usePointerMotion";
-import { ageLabel, fmtIST } from "@/lib/format";
-import { formatPrecip } from "@/lib/normalize";
+import { ageLabel, fmtDay, fmtIST } from "@/lib/format";
+import { formatNum, formatPrecip } from "@/lib/normalize";
 
 const LiveMap = dynamic(() => import("./LiveMap"), { ssr: false, loading: () => <p className="unavail">Loading command map…</p> });
 const Earth3D = dynamic(() => import("./Earth3D"), {
@@ -82,20 +82,30 @@ export default function Dashboard() {
   const label = customLabel ?? loc.name;
   const lat = analysis?.lat ?? loc.lat;
   const lon = analysis?.lon ?? loc.lon;
-  const risk = live ? analysis?.risk : undefined;
+  const risk = live && analysis?.risk && analysis.risk.coverage01 > 0 ? analysis.risk : undefined;
   const level = risk?.level ?? "NORMAL";
   const satStatus: SourceStatus = satLayers.length === 0 ? "OFFLINE" : satLayers.some((l) => l.status === "LIVE" || l.status === "RECENT") ? "RECENT" : "OFFLINE";
+  const nwpStatus: SourceStatus = (analysis?.provenance?.modelsLive ?? 0) > 0 ? "LIVE" : analysis ? "OFFLINE" : "READY";
+  const aiStatus: SourceStatus = live && risk ? "READY" : "OFFLINE";
+  const systemStatus: SourceStatus = !analysis
+    ? "READY"
+    : analysis.status !== "LIVE"
+      ? "OFFLINE"
+      : radar.status === "LIVE" && satStatus !== "OFFLINE" && nwpStatus === "LIVE"
+        ? "LIVE"
+        : "DEGRADED";
+  const systemLabel = systemStatus === "LIVE" ? "SYSTEM ONLINE" : systemStatus === "DEGRADED" ? "SYSTEM DEGRADED" : systemStatus === "OFFLINE" ? "SYSTEM OFFLINE" : "SYSTEM READY";
 
   const bar = useMemo(
     () => [
-      { label: "SYSTEM ONLINE", status: "LIVE" as SourceStatus },
+      { label: systemLabel, status: systemStatus },
       { label: "WEATHER", status: (analysis?.status ?? "READY") as SourceStatus },
       { label: "RADAR", status: radar.status },
       { label: "SATELLITE", status: satStatus },
-      { label: "NWP", status: ((analysis?.provenance?.modelsLive ?? 0) > 0 ? "LIVE" : analysis ? "OFFLINE" : "READY") as SourceStatus },
-      { label: "AI", status: "READY" as SourceStatus },
+      { label: "NWP", status: nwpStatus },
+      { label: "AI", status: aiStatus },
     ],
-    [analysis, radar.status, satStatus]
+    [analysis, radar.status, satStatus, nwpStatus, aiStatus, systemLabel, systemStatus]
   );
 
   const fabric: FabricSource[] = useMemo(() => {
@@ -105,10 +115,10 @@ export default function Dashboard() {
       { name: "RainViewer", kind: "Radar tiles", status: radar.status, source: "api.rainviewer.com (free)", lastUpdate: radar.fetchedAt || undefined, dataType: "radar past frames, 10-min interval", resolution: "512px tiles" },
       { name: "NASA GIBS", kind: "Satellite imagery", status: h.get("gibs")?.status ?? satStatus, source: "gibs.earthdata.nasa.gov (free WMTS)", lastUpdate: analysis?.fetchedAt, dataType: "MODIS/VIIRS true color + 7-2-1 false color", resolution: "250–500 m" },
       { name: "MOSDAC / ISRO", kind: "Indian satellite adapter", status: (h.get("mosdac")?.status ?? "AUTH") as SourceStatus, source: "MOSDAC (credentials optional)", dataType: "adapter path only", resolution: "product-dependent" },
-      { name: "AI Engine", kind: "Transparent prototype", status: "READY", source: "in-repo weighted fusion", dataType: "risk + inundation + warning", resolution: "point analysis" },
-      { name: "Inundation", kind: "Model estimate", status: live ? "LIVE" : "OFFLINE", source: "rainfall + soil + elevation fusion", lastUpdate: analysis?.fetchedAt, dataType: "probability + class", resolution: "schematic zones" },
+      { name: "AI Engine", kind: "Transparent prototype", status: aiStatus, source: "in-repo weighted fusion", dataType: "risk + inundation risk index + warning", resolution: "point analysis" },
+      { name: "Inundation", kind: "Model estimate", status: risk ? "READY" : "OFFLINE", source: "rainfall + soil + elevation fusion", lastUpdate: analysis?.fetchedAt, dataType: "uncalibrated risk index + class", resolution: "schematic zones" },
     ];
-  }, [analysis, radar, satStatus, health, live]);
+  }, [analysis, radar, satStatus, health, aiStatus, risk]);
 
   const healthLive = useMemo(
     () => [...bar.map((b) => b.status), ...health.map((h) => h.status)].filter((s) => s === "LIVE" || s === "RECENT").length,
@@ -124,21 +134,22 @@ export default function Dashboard() {
   const overviewKpis: Kpi[] = [
     {
       icon: <CloudRain size={17} />, label: "Current rainfall",
-      value: live ? formatPrecip(analysis?.current?.precipitation) : "—", unit: " mm/h",
-      sub: "Open-Meteo live observation",
-      badge: live ? level : undefined, tone: toneOf(level),
+      value: live ? formatNum(analysis?.current?.precipitationRateMMH, 1) : "—", unit: " mm/h",
+      sub: "Open-Meteo model-derived current conditions",
+      badge: risk ? level : undefined, tone: risk ? toneOf(level) : "muted",
     },
     {
       icon: <Droplets size={17} />, label: "24h accumulation",
-      value: live ? formatPrecip(analysis?.accum?.h24) : "—", unit: " mm",
-      sub: "Σ hourly forecast series (calculated)",
+      value: live ? formatNum(analysis?.accum?.h24, 1) : "—", unit: " mm",
+      sub: `Σ model hourly series · ${analysis?.accumCoverage?.h24 == null ? "coverage —" : `${Math.round(analysis.accumCoverage.h24 * 100)}% coverage`}`,
       tone: "info",
     },
     {
       icon: <TrendingUp size={17} />, label: "Forecast 24h",
-      value: live ? formatPrecip(analysis?.nwpMean24) : "—", unit: " mm",
+      value: live ? formatNum(analysis?.nwpMean24, 1) : "—", unit: " mm",
       sub: `NWP mean · ${analysis?.provenance?.modelsLive ?? 0}/4 models live`,
-      badge: analysis?.consensus, tone: analysis?.consensus === "HIGH" ? "ok" : analysis?.consensus === "MODERATE" ? "watch" : analysis?.consensus === "LOW" ? "alert" : "muted",
+      badge: analysis?.nwpMean24 == null ? undefined : analysis.consensus,
+      tone: analysis?.nwpMean24 == null ? "muted" : analysis.consensus === "HIGH" ? "ok" : analysis.consensus === "MODERATE" ? "watch" : "alert",
     },
     {
       icon: <ShieldAlert size={17} />, label: "Risk level",
@@ -151,13 +162,13 @@ export default function Dashboard() {
   const rainfallKpis: Kpi[] = [
     {
       icon: <Droplets size={17} />, label: "Total (24h)",
-      value: live ? formatPrecip(analysis?.accum?.h24) : "—", unit: " mm",
-      sub: `${analysis?.hourlyGaps ?? 0} hourly gaps disclosed, never zero-filled`,
-      badge: live ? level : undefined, tone: toneOf(level),
+      value: live ? formatNum(analysis?.accum?.h24, 1) : "—", unit: " mm",
+      sub: `${analysis?.accumCoverage?.h24 == null ? "coverage —" : `${Math.round(analysis.accumCoverage.h24 * 100)}% hourly coverage`} · ${analysis?.hourlyGaps ?? 0} gaps disclosed, never zero-filled`,
+      badge: risk ? level : undefined, tone: risk ? toneOf(level) : "muted",
     },
     {
       icon: <Gauge size={17} />, label: "Max intensity (24h)",
-      value: live && hourly24.precip.length ? formatPrecip(Math.max(...hourly24.precip)) : "—", unit: " mm/h",
+      value: live && hourly24.precip.length ? formatNum(Math.max(...hourly24.precip), 1) : "—", unit: " mm/h",
       sub: "peak hourly forecast rate",
       tone: "info",
     },
@@ -169,9 +180,9 @@ export default function Dashboard() {
     },
     {
       icon: <TrendingUp size={17} />, label: "Model confidence",
-      value: analysis?.consensus ?? "—",
-      sub: `agreement ${Math.round((analysis?.agreement01 ?? 0) * 100)}% · spread ${(analysis?.spreadMM ?? 0).toFixed(1)} mm`,
-      tone: analysis?.consensus === "HIGH" ? "ok" : analysis?.consensus === "MODERATE" ? "watch" : analysis?.consensus === "LOW" ? "alert" : "muted",
+      value: analysis?.nwpMean24 == null ? "—" : analysis.consensus ?? "—",
+      sub: `agreement ${analysis?.agreement01 == null ? "—" : `${Math.round(analysis.agreement01 * 100)}%`} · spread ${analysis?.spreadMM == null ? "—" : `${analysis.spreadMM.toFixed(1)} mm`}`,
+      tone: analysis?.nwpMean24 == null ? "muted" : analysis.consensus === "HIGH" ? "ok" : analysis.consensus === "MODERATE" ? "watch" : "alert",
     },
   ];
 
@@ -210,7 +221,7 @@ export default function Dashboard() {
     }
   }, [analysis?.lat, analysis?.lon, customLabel, loc]);
   const mapProps = {
-    lat, lon, label, radar, satLayers, level, inundProb: risk?.inundation.prob01 ?? 0,
+    lat, lon, label, radar, satLayers, level, inundRisk: risk?.inundation.riskIndex ?? 0,
     onCity: (la: number, lo: number, name: string) => analyze(la, lo, name, null),
   };
 
@@ -247,7 +258,7 @@ export default function Dashboard() {
                   >
                     <Earth3D
                       level={level}
-                      rain={analysis?.current?.precipitation ?? 0}
+                      rain={analysis?.current?.precipitationRateMMH ?? 0}
                       lat={lat}
                       lon={lon}
                       label={label}
@@ -256,7 +267,7 @@ export default function Dashboard() {
                       paused={view !== "overview"}
                       frameTime={
                         radar.past.length
-                          ? new Date(radar.past[radar.past.length - 1].time * 1000).toLocaleString("en-IN")
+                          ? fmtIST(new Date(radar.past[radar.past.length - 1].time * 1000).toISOString())
                           : "—"
                       }
                     />
@@ -273,11 +284,11 @@ export default function Dashboard() {
                 stages={[
                   { name: "Satellite", status: satStatus, note: "GIBS recent" },
                   { name: "Radar", status: radar.status, note: `${radar.past.length} frames` },
-                  { name: "Observations", status: analysis?.status ?? "READY", note: "Open-Meteo" },
-                  { name: "NWP", status: (analysis?.provenance?.modelsLive ?? 0) > 0 ? "LIVE" : "OFFLINE", note: `${analysis?.provenance?.modelsLive ?? 0}/4` },
-                  { name: "AI/ML", status: "READY", note: "prototype" },
-                  { name: "Rainfall risk", status: live ? "LIVE" : "OFFLINE", note: risk ? `${risk.score}` : "—" },
-                  { name: "Inundation", status: live ? "LIVE" : "OFFLINE", note: risk ? risk.inundation.class : "—" },
+                  { name: "Current conditions", status: analysis?.status ?? "READY", note: "Open-Meteo model-derived" },
+                  { name: "NWP", status: nwpStatus, note: `${analysis?.provenance?.modelsLive ?? 0}/4` },
+                  { name: "AI/ML", status: aiStatus, note: "prototype · weighted fusion" },
+                  { name: "Rainfall risk", status: risk ? "LIVE" : "OFFLINE", note: risk ? `${risk.score} · coverage ${Math.round(risk.coverage01 * 100)}%` : "—" },
+                  { name: "Inundation", status: risk ? "READY" : "OFFLINE", note: risk ? `index ${risk.inundation.riskIndex} · ${risk.inundation.class}` : "—" },
                   { name: "Warning", status: live ? "LIVE" : "OFFLINE", note: risk ? risk.level : "—" },
                 ]}
               />
@@ -316,7 +327,7 @@ export default function Dashboard() {
                     <div className="dayRow">
                       {analysis.daily.time.map((t, i) => (
                         <div key={t} className="dayCard">
-                          <span>{new Date(t).toLocaleDateString("en-IN", { weekday: "short", day: "2-digit" })}</span>
+                          <span>{fmtDay(t)}</span>
                           <b>{analysis.daily?.tmax?.[i] == null ? "—" : `${Math.round(analysis.daily.tmax[i] as number)}°`} <em>/ {analysis.daily?.tmin?.[i] == null ? "—" : `${Math.round(analysis.daily.tmin[i] as number)}°`}</em></b>
                           <span>rain {formatPrecip(analysis.daily?.psum?.[i])}</span>
                           <span>prob {analysis.daily?.pprob?.[i] == null ? "—" : `${Math.round(analysis.daily.pprob[i] as number)}%`}</span>

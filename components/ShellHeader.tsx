@@ -41,7 +41,9 @@ export default function ShellHeader({
     ? now.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }) +
       " IST"
     : "--:--:-- IST";
-  const liveCount = systemLive.filter((s) => s.status === "LIVE" || s.status === "RECENT").length;
+  const overall = systemLive[0]?.status ?? "READY";
+  const liveLabel =
+    overall === "LIVE" ? "LIVE DATA" : overall === "DEGRADED" ? "PARTIAL DATA" : overall === "OFFLINE" ? "NO LIVE DATA" : "AWAITING DATA";
 
   return (
     <header className="shHeader" aria-label="Command center header">
@@ -74,7 +76,7 @@ export default function ShellHeader({
       </label>
       <div className="shRight">
         <div className="shLive">
-          <span><StatusDot status={liveCount > 0 ? "LIVE" : "OFFLINE"} /> LIVE DATA</span>
+          <span><StatusDot status={overall} /> {liveLabel}</span>
           <b>{date}</b>
           <b>{time}</b>
         </div>

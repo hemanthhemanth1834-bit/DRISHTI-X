@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { fetchRadar } from "@/lib/providers";
+import { radarHealth } from "@/lib/radar";
 
 export const revalidate = 300;
 export const dynamic = "force-dynamic";
@@ -7,9 +8,10 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     const meta = await fetchRadar();
-    const fresh = Date.now() / 1000 - meta.generated < 7200;
+    const health = radarHealth(meta);
     return NextResponse.json({
-      status: meta.past.length > 0 && fresh ? "LIVE" : "DELAYED",
+      status: health.status,
+      latestAgeMin: health.latestAgeMin,
       source: "RainViewer public radar API (free, no key)",
       fetchedAt: new Date().toISOString(),
       ...meta,

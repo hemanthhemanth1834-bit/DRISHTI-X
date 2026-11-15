@@ -16,8 +16,8 @@ export default function NwpPanel({
   onRefresh,
 }: {
   models?: ModelRain[];
-  agreement01?: number;
-  spreadMM?: number;
+  agreement01?: number | null;
+  spreadMM?: number | null;
   consensus?: "LOW" | "MODERATE" | "HIGH";
   locationLabel?: string;
   windowNote?: string;
@@ -35,9 +35,9 @@ export default function NwpPanel({
   // Bar scale = maximum valid live total (real relative lengths; all-dry
   // models legitimately render near-empty bars).
   const maxV = Math.max(0.5, ...live.map((m) => m.precipMM ?? 0));
-  const pct = Math.round((agreement01 ?? 0) * 100);
+  const pct = agreement01 == null ? null : Math.round(agreement01 * 100);
   const spreadText =
-    live.length < 1 ? "UNAVAILABLE" : live.length < 2 ? "N/A — INSUFFICIENT MODEL AGREEMENT DATA (1 model)" : `${(spreadMM ?? 0).toFixed(1)} mm`;
+    live.length < 1 ? "UNAVAILABLE" : live.length < 2 ? "N/A — INSUFFICIENT MODEL AGREEMENT DATA (1 model)" : spreadMM == null ? "—" : `${spreadMM.toFixed(1)} mm`;
   return (
     <div className="panel model">
       <div className="metricLabel" title="NWP Model Consensus compares precipitation forecasts from independently available numerical weather prediction models over the same forecast window and selected location. It is a computed comparison, not an official IMD warning and not an official probabilistic confidence product.">
@@ -67,10 +67,10 @@ export default function NwpPanel({
       <div className="agree">
         <div className="agreeHead">
           <span>MODEL AGREEMENT = 1 − SPREAD / MAX(MEAN, 2MM)</span>
-          <b>{live.length < 2 ? "—" : `${pct}%`}</b>
+          <b>{live.length < 2 || pct == null ? "—" : `${pct}%`}</b>
         </div>
         <div className="agreeBar">
-          <span style={{ width: live.length < 2 ? "0%" : `${pct}%` }} />
+          <span style={{ width: live.length < 2 || pct == null ? "0%" : `${pct}%` }} />
         </div>
         <dl className="nwpFacts">
           <div><dt>Models available</dt><dd>{live.length}/{models.length}</dd></div>

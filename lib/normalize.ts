@@ -3,9 +3,22 @@
  * Missing (null) and actual zero (0) are NOT the same — missing renders "—".
  */
 
+export const CURRENT_PRECIP_INTERVAL_MIN = 15;
+
 export function toFiniteNumber(v: unknown): number | null {
   const n = typeof v === "string" && v.trim() !== "" ? Number(v) : v;
   return typeof n === "number" && Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Open-Meteo current.precipitation is the amount (mm) in the preceding
+ * 15-minute interval, not an instantaneous mm/h rate. Convert explicitly and
+ * never label the raw amount as mm/h.
+ */
+export function amountToRate(value: unknown, intervalMin = CURRENT_PRECIP_INTERVAL_MIN): number | null {
+  const amount = toFiniteNumber(value);
+  if (amount == null || amount < 0 || intervalMin <= 0) return null;
+  return Math.round((amount * (60 / intervalMin)) * 100) / 100;
 }
 
 /** "12.4 mm" for real data, "—" for missing/invalid. Never crashes. */
@@ -27,7 +40,7 @@ export function barWidth(v: unknown, fullScale = 60): number {
   return Math.min(100, Math.max(0, (n / fullScale) * 100));
 }
 
-export type NwpStatus = "LIVE" | "RECENT" | "DELAYED" | "OFFLINE" | "DEMO" | "READY" | "AUTH";
+export type NwpStatus = "LIVE" | "RECENT" | "DELAYED" | "DEGRADED" | "OFFLINE" | "DEMO" | "READY" | "AUTH";
 
 export interface NwpUiModel {
   model: string;

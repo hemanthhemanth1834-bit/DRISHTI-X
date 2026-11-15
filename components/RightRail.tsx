@@ -47,14 +47,14 @@ export default function RightRail({
       <WarningCard label={label} accum={analysis?.accum} risk={risk} live={live} validUntil={analysis?.warning?.validUntil} />
 
       <div className="panel rCard">
-        <div className="metricLabel">Current weather — Open-Meteo live</div>
+        <div className="metricLabel">Current weather — Open-Meteo model-derived</div>
         {live && analysis?.current ? (
           <div className="rBig">{formatNum(analysis.current.temperature, 0, "°C")}</div>
         ) : (
           <p className="unavail">SOURCE UNAVAILABLE</p>
         )}
         <div className="rFacts">
-          <span>Rain {live ? formatNum(analysis?.current?.precipitation, 1, " mm/h") : "—"}</span>
+          <span>Rain {live ? formatNum(analysis?.current?.precipitationRateMMH, 1, " mm/h") : "—"}</span>
           <span>Humidity {live ? formatNum(analysis?.current?.humidity, 0, "%") : "—"}</span>
           <span>Wind {live ? formatNum(analysis?.current?.windSpeed, 0, " km/h") : "—"}</span>
         </div>
@@ -71,8 +71,8 @@ export default function RightRail({
         <div className="metricLabel">Inundation risk — AI-assisted model estimate</div>
         <div className="rBig rClass">{risk ? risk.inundation.class : "—"}</div>
         <div className="rFacts">
-          <span>{risk ? `${Math.round(risk.inundation.prob01 * 100)}% probability` : "no inputs"}</span>
-          <span>Horizon {(analysis?.accum ? "48h" : "—")}</span>
+          <span>{risk ? `${risk.inundation.riskIndex}/100 risk index` : "no inputs"}</span>
+          <span>Coverage {risk ? `${Math.round(risk.inundation.coverage01 * 100)}%` : "—"} · {analysis?.accum ? "48h" : "—"}</span>
         </div>
       </div>
 

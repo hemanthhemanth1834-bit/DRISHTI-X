@@ -13,7 +13,7 @@ interface HealthSrc {
   status: SourceStatus;
 }
 
-const STATUS_ORDER: SourceStatus[] = ["LIVE", "RECENT", "READY", "DELAYED", "AUTH", "DEMO", "OFFLINE"];
+const STATUS_ORDER: SourceStatus[] = ["LIVE", "RECENT", "READY", "DELAYED", "DEGRADED", "AUTH", "DEMO", "OFFLINE"];
 
 export default function DataHealthView({
   analysis,
@@ -33,6 +33,7 @@ export default function DataHealthView({
   const satStatus: SourceStatus = satLayers.length === 0 ? "OFFLINE" : satLayers.some((l) => l.status === "LIVE" || l.status === "RECENT") ? "RECENT" : "OFFLINE";
   const mosdac = health.find((h) => h.id === "mosdac")?.status ?? "AUTH";
   const viirs = satLayers.find((l) => l.id === "viirs-truecolor");
+  const aiStatus: SourceStatus = live && (analysis?.risk?.coverage01 ?? 0) > 0 ? "READY" : "OFFLINE";
 
   const rows: { name: string; kind: string; status: SourceStatus; last?: string; note: string }[] = [
     {
@@ -43,7 +44,7 @@ export default function DataHealthView({
     {
       name: "RainViewer", kind: "Radar tiles", status: radar.status,
       last: radar.fetchedAt || undefined,
-      note: `${radar.past.length} past frames · 10-min cadence · 512px tiles (z≤7 native)`,
+      note: `${radar.past.length} past frames · 10-min cadence · frame freshness up to 120 min · 512px tiles (z≤7 native)`,
     },
     {
       name: "NASA GIBS", kind: "Satellite imagery", status: satStatus,
@@ -69,9 +70,11 @@ export default function DataHealthView({
       note: mosdac === "AUTH" ? "credential-gated (MOSDAC_USERNAME unset) — adapter path documented, never faked" : "adapter configured",
     },
     {
-      name: "AI Engine", kind: "Transparent fusion", status: "READY",
+      name: "AI Engine", kind: "Transparent fusion", status: aiStatus,
       last: analysis?.fetchedAt,
-      note: "in-repo weighted fusion · explainability trace available per analysis",
+      note: aiStatus === "READY"
+        ? "in-repo weighted fusion · explainability trace available per analysis"
+        : "no scored analysis with input coverage yet",
     },
   ];
 
@@ -136,7 +139,7 @@ export default function DataHealthView({
           </tbody>
         </table>
         <p className="prov">
-          Freshness windows: analysis 10 min · radar 5 min · satellite 60 min. Statuses reflect the latest client fetch; provider publication latency is not exposed by the upstream APIs and is therefore not claimed.
+          Freshness windows: analysis 10 min · radar frame freshness 120 min · satellite 60 min. Statuses reflect the latest client fetch; provider publication latency is not exposed by the upstream APIs and is therefore not claimed.
         </p>
       </div>
 

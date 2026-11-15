@@ -25,6 +25,7 @@ export type SourceStatus =
   | "LIVE"
   | "RECENT"
   | "DELAYED"
+  | "DEGRADED"
   | "OFFLINE"
   | "DEMO"
   | "READY"

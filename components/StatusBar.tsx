@@ -7,6 +7,7 @@ const dot: Record<string, string> = {
   RECENT: "#6feaff",
   READY: "#6feaff",
   DELAYED: "#ffc857",
+  DEGRADED: "#ffc857",
   AUTH: "#ffc857",
   DEMO: "#9b6cff",
   OFFLINE: "#ff6b86",

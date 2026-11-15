@@ -22,7 +22,7 @@ export default function AlertDetails({
   live: boolean;
   label: string;
 }) {
-  const risk = live ? analysis?.risk : undefined;
+  const risk = live && (analysis?.risk?.coverage01 ?? 0) > 0 ? analysis?.risk : undefined;
   const w = analysis?.warning;
   const color = risk ? LEVEL_COLOR[risk.level] : "#8190a8";
 
@@ -52,17 +52,17 @@ export default function AlertDetails({
       </div>
       <dl className="factGrid" style={{ marginTop: 10 }}>
         <div><dt><MapPin size={10} style={{ verticalAlign: -1 }} /> Area</dt><dd>{label} ({analysis?.lat?.toFixed(2)}, {analysis?.lon?.toFixed(2)})</dd></div>
-        <div><dt>Trigger</dt><dd>{(analysis?.accum?.h6 ?? 0).toFixed(1)} mm / 6h forecast accumulation · bands: {band}</dd></div>
+        <div><dt>Trigger</dt><dd>{analysis?.accum?.h6 == null ? "— (incomplete 6h window)" : `${analysis.accum.h6.toFixed(1)} mm / 6h forecast accumulation`} · bands: {band}</dd></div>
         <div><dt>Issued</dt><dd>{w?.validFrom ? `${fmtIST(w.validFrom)}` : fmtIST(analysis?.fetchedAt ?? "")}</dd></div>
         <div><dt>Valid until</dt><dd>{w?.validUntil ? `${fmtIST(w.validUntil)}` : "—"} (3h validity, superseded on refresh)</dd></div>
         <div>
           <dt>Confidence</dt>
           <dd>
-            NWP consensus {analysis?.consensus ?? "—"} · agreement {Math.round((analysis?.agreement01 ?? 0) * 100)}% · model spread {(analysis?.spreadMM ?? 0).toFixed(1)} mm
+            NWP consensus {analysis?.consensus ?? "—"} · agreement {analysis?.agreement01 == null ? "—" : `${Math.round(analysis.agreement01 * 100)}%`} · model spread {analysis?.spreadMM == null ? "—" : `${analysis.spreadMM.toFixed(1)} mm`} · input coverage {Math.round((risk.coverage01) * 100)}%
             {analysis?.quality?.suspect.length ? ` · suspect inputs excluded: ${analysis.quality.suspect.join(", ")}` : " · all inputs passed plausibility gates"}
           </dd>
         </div>
-        <div><dt>Source</dt><dd>Open-Meteo observations + 4-model NWP consensus + in-repo AI fusion (transparent weights)</dd></div>
+        <div><dt>Source</dt><dd>Open-Meteo model-derived current conditions + 4-model NWP consensus + in-repo weighted fusion (transparent weights)</dd></div>
       </dl>
       <div className="metricLabel" style={{ marginTop: 14 }}>Suggested actions (standard advisory)</div>
       <ul className="actionList">
@@ -77,7 +77,7 @@ export default function AlertDetails({
         ))}
       </div>
       <p className="prov">
-        Dedupe key {w?.dedupeKey ?? "—"} — repeated identical alerts inside the validity window are collapsed. Inundation shown elsewhere is a model estimate, not observed flood extent.
+        Dedupe key {w?.dedupeKey ?? "—"} — repeated identical alerts inside the validity window are collapsed. The inundation risk index ({risk.inundation.riskIndex}/100) is an uncalibrated model estimate, not a probability or observed flood extent.
       </p>
     </div>
   );

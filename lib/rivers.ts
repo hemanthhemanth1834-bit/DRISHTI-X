@@ -30,14 +30,18 @@ export async function fetchRivers(lat: number, lon: number): Promise<RiverResult
   try {
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), 9000);
-    const r = await fetch("https://overpass-api.de/api/interpreter", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "DRISHTI-X-PS26071 research" },
-      body: "data=" + encodeURIComponent(ql),
-      signal: ctl.signal,
-      next: { revalidate: 86400 },
-    });
-    clearTimeout(t);
+    let r: Response;
+    try {
+      r = await fetch("https://overpass-api.de/api/interpreter", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "DRISHTI-X-PS26071 research" },
+        body: "data=" + encodeURIComponent(ql),
+        signal: ctl.signal,
+        next: { revalidate: 86400 },
+      });
+    } finally {
+      clearTimeout(t);
+    }
     if (!r.ok) throw new Error(`overpass ${r.status}`);
     const j = await r.json();
     const els = Array.isArray(j?.elements) ? j.elements : [];

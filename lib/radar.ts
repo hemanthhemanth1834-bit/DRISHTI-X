@@ -33,3 +33,26 @@ export function radarAgeLabel(ageMin: number | null): string {
   if (ageMin < 60) return `UPDATED ${ageMin} min ago`;
   return `UPDATED ${Math.floor(ageMin / 60)}h ${ageMin % 60}m ago`;
 }
+
+export interface RadarHealth {
+  status: RadarDisplayStatus;
+  latestAgeMin: number | null;
+  latestFrameTime: number | null;
+}
+
+/**
+ * Server-side radar readiness derived from the newest actual frame, not from
+ * the payload's generation clock. Analysis uses this instead of a hardcoded
+ * READY value; an unavailable feed is reported OFFLINE.
+ */
+export function radarHealth(
+  meta: { past?: { time: number }[]; nowcast?: { time: number }[] } | null,
+  nowMs = Date.now()
+): RadarHealth {
+  if (!meta) return { status: "OFFLINE", latestAgeMin: null, latestFrameTime: null };
+  const frames = [...(meta.past ?? []), ...(meta.nowcast ?? [])].map((f) => f.time).filter((t) => Number.isFinite(t));
+  if (frames.length === 0) return { status: "OFFLINE", latestAgeMin: null, latestFrameTime: null };
+  const latest = Math.max(...frames);
+  const latestAgeMin = radarFrameAgeMin(latest, nowMs);
+  return { status: radarDisplayStatus(true, latestAgeMin), latestAgeMin, latestFrameTime: latest };
+}

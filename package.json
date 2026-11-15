@@ -1,0 +1,43 @@
+{
+  "name": "drishti-x-ps26071",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test:unit": "tsc tests/engine.test.ts tests/normalize.test.ts tests/quality.test.ts tests/ml.test.ts lib/engine.ts lib/normalize.ts lib/locations.ts lib/quality.ts lib/radar.ts lib/ml.ts --outDir .unit-tmp --module commonjs --target es2022 --moduleResolution node --skipLibCheck --esModuleInterop && node --test \".unit-tmp/tests/*.test.js\" && rmdir /s /q .unit-tmp"
+  },
+  "dependencies": {
+    "@react-three/drei": "^10.7.6",
+    "@react-three/fiber": "^9.3.0",
+    "framer-motion": "^12.23.24",
+    "leaflet": "^1.9.4",
+    "lucide-react": "^0.468.0",
+    "next": "^15.5.4",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-leaflet": "^5.0.0",
+    "recharts": "^3.2.1",
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "@types/leaflet": "^1.9.20",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "eslint": "^9.36.0",
+    "eslint-config-next": "^15.5.4",
+    "typescript": "^5.9.2"
+  },
+  "description": "AI/ML-based integrated heavy-rainfall early-warning and inundation-prediction command center using satellite, radar, observational weather and NWP model data. Strict scope: heavy rainfall → early warning → inundation prediction. No unrelated disaster modules.",
+  "main": "index.js",
+  "directories": {
+    "lib": "lib"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
+}

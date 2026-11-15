@@ -1,0 +1,15 @@
+{
+  "features": [
+    "lag1",
+    "lag2",
+    "lag3",
+    "lag6",
+    "lag12",
+    "lag24",
+    "sum24",
+    "gaps24",
+    "hod_sin",
+    "hod_cos"
+  ],
+  "units": "mm, hours, cyclic"
+}

@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+pydantic
+httpx
+# scikit-learn is optional: reserved for future supervised training on
+# archived rainfall data. The shipped prototype (services/risk.py) is an
+# explainable weighted fusion and runs without it.
+# scikit-learn
